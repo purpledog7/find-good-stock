@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pandas as pd
 
-from config import LIQUIDITY_FULL_SCORE_VALUE, MAX_PBR, MAX_PER, MAX_RAW_SCORE
+from config import (
+    AVG_TRADING_VALUE_COLUMN,
+    LIQUIDITY_FULL_SCORE_VALUE,
+    MAX_PBR,
+    MAX_PER,
+    MAX_RAW_SCORE,
+)
 
 
 def score_stocks(df: pd.DataFrame) -> pd.DataFrame:
@@ -15,7 +21,7 @@ def score_stocks(df: pd.DataFrame) -> pd.DataFrame:
     pbr = pd.to_numeric(result["pbr"], errors="coerce").fillna(MAX_PBR)
     roe = pd.to_numeric(result["estimated_roe"], errors="coerce").fillna(0)
     avg_trading_value = pd.to_numeric(
-        result["avg_trading_value_20d"], errors="coerce"
+        result[AVG_TRADING_VALUE_COLUMN], errors="coerce"
     ).fillna(0)
 
     per_score = ((MAX_PER - per) / MAX_PER * 20).clip(lower=0, upper=20)

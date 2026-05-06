@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import pandas as pd
 
+from config import AVG_TRADING_VALUE_COLUMN
 
-def add_ai_summary(df: pd.DataFrame) -> pd.DataFrame:
+
+def add_summary(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
-    result["ai_summary"] = result.apply(build_summary, axis=1)
+    result["summary"] = result.apply(build_summary, axis=1)
     return result
 
 
@@ -13,7 +15,7 @@ def build_summary(row: pd.Series) -> str:
     per = row.get("per")
     pbr = row.get("pbr")
     roe = row.get("estimated_roe")
-    avg_trading_value = row.get("avg_trading_value_20d")
+    avg_trading_value = row.get(AVG_TRADING_VALUE_COLUMN)
 
     summary: list[str] = []
 

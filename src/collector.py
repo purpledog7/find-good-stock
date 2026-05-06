@@ -8,6 +8,7 @@ from typing import Any, Callable
 import pandas as pd
 
 from config import (
+    AVG_TRADING_VALUE_COLUMN,
     LOOKBACK_TRADING_DAYS,
     MARKETS,
     REQUEST_SLEEP_SECONDS,
@@ -17,28 +18,49 @@ from config import (
 
 DATE_INPUT_FORMATS = ("%Y%m%d", "%Y-%m-%d")
 _stock_api: Any | None = None
+ProgressCallback = Callable[[str], None] | None
 
 
-def collect_all_stock_data(reference_date: str | None = None) -> tuple[pd.DataFrame, str]:
-    market_date = find_latest_market_date(reference_date)
-    trading_dates = get_recent_trading_dates(market_date, LOOKBACK_TRADING_DAYS)
+def collect_all_stock_data(
+    reference_date: str | None = None,
+    progress: ProgressCallback = None,
+) -> tuple[pd.DataFrame, str]:
+    emit_progress(progress, "1/5 기준 거래일 확인 중...")
+    market_date = find_latest_market_date(reference_date, progress)
+    emit_progress(progress, f"기준 거래일 확정: {to_output_date(market_date)}")
 
-    snapshots = [collect_market_snapshot(market, market_date) for market in MARKETS]
+    emit_progress(progress, f"2/5 최근 거래일 {LOOKBACK_TRADING_DAYS}개 확인 중...")
+    trading_dates = get_recent_trading_dates(market_date, LOOKBACK_TRADING_DAYS, progress)
+    emit_progress(progress, f"거래일 확인 완료: {len(trading_dates)}개")
+
+    emit_progress(progress, "3/5 시장별 종목/재무 지표 수집 중...")
+    snapshots = [
+        collect_market_snapshot(market, market_date, progress) for market in MARKETS
+    ]
     snapshot_df = pd.concat(snapshots, ignore_index=True)
+    emit_progress(progress, f"시장별 스냅샷 수집 완료: {len(snapshot_df):,}개 종목")
 
-    avg_trading_value_df = collect_average_trading_value_20d(trading_dates)
+    emit_progress(progress, f"4/5 최근 {LOOKBACK_TRADING_DAYS}거래일 평균 거래대금 계산 중...")
+    avg_trading_value_df = collect_average_trading_value(trading_dates, progress)
+
+    emit_progress(progress, "5/5 데이터 병합 중...")
     result = snapshot_df.merge(avg_trading_value_df, on="code", how="left")
     result["date"] = to_output_date(market_date)
+    emit_progress(progress, f"데이터 병합 완료: {len(result):,}개 종목")
 
     return result, to_output_date(market_date)
 
 
-def find_latest_market_date(reference_date: str | None = None) -> str:
+def find_latest_market_date(
+    reference_date: str | None = None,
+    progress: ProgressCallback = None,
+) -> str:
     stock_api = require_pykrx()
     current = parse_date(reference_date) if reference_date else datetime.now()
 
     for offset in range(14):
         date_str = (current - timedelta(days=offset)).strftime("%Y%m%d")
+        emit_progress(progress, f"  기준일 후보 확인: {to_output_date(date_str)}")
         ohlcv = call_with_retry(stock_api.get_market_ohlcv, date_str, market="KOSPI")
         if not ohlcv.empty:
             return date_str
@@ -47,7 +69,11 @@ def find_latest_market_date(reference_date: str | None = None) -> str:
     raise RuntimeError("최근 14일 안에서 거래 데이터가 있는 기준일을 찾지 못했어.")
 
 
-def get_recent_trading_dates(base_date: str, count: int) -> list[str]:
+def get_recent_trading_dates(
+    base_date: str,
+    count: int,
+    progress: ProgressCallback = None,
+) -> list[str]:
     stock_api = require_pykrx()
     current = parse_date(base_date)
     dates: list[str] = []
@@ -60,6 +86,7 @@ def get_recent_trading_dates(base_date: str, count: int) -> list[str]:
         ohlcv = call_with_retry(stock_api.get_market_ohlcv, date_str, market="KOSPI")
         if not ohlcv.empty:
             dates.append(date_str)
+            emit_progress(progress, f"  거래일 발견 ({len(dates)}/{count}): {to_output_date(date_str)}")
         time.sleep(REQUEST_SLEEP_SECONDS)
 
     if len(dates) < count:
@@ -68,12 +95,18 @@ def get_recent_trading_dates(base_date: str, count: int) -> list[str]:
     return dates
 
 
-def collect_market_snapshot(market: str, date: str) -> pd.DataFrame:
+def collect_market_snapshot(
+    market: str,
+    date: str,
+    progress: ProgressCallback = None,
+) -> pd.DataFrame:
     stock_api = require_pykrx()
 
+    emit_progress(progress, f"  {market} 시가총액 수집 중...")
     cap_df = normalize_ticker_frame(
         call_with_retry(stock_api.get_market_cap, date, market=market)
     )
+    emit_progress(progress, f"  {market} PER/PBR/EPS/BPS 수집 중...")
     fundamental_df = normalize_ticker_frame(
         call_with_retry(stock_api.get_market_fundamental, date, market=market)
     )
@@ -97,6 +130,7 @@ def collect_market_snapshot(market: str, date: str) -> pd.DataFrame:
     numeric_columns = ["price", "market_cap", "per", "pbr", "eps", "bps"]
     merged = coerce_numeric(merged, numeric_columns)
     merged["estimated_roe"] = calculate_estimated_roe(merged["eps"], merged["bps"])
+    emit_progress(progress, f"  {market} 스냅샷 완료: {len(merged):,}개 종목")
 
     return merged[
         [
@@ -114,11 +148,18 @@ def collect_market_snapshot(market: str, date: str) -> pd.DataFrame:
     ]
 
 
-def collect_average_trading_value_20d(trading_dates: list[str]) -> pd.DataFrame:
+def collect_average_trading_value(
+    trading_dates: list[str],
+    progress: ProgressCallback = None,
+) -> pd.DataFrame:
     stock_api = require_pykrx()
     frames: list[pd.DataFrame] = []
 
-    for date in trading_dates:
+    for index, date in enumerate(trading_dates, start=1):
+        emit_progress(
+            progress,
+            f"  거래대금 수집 중 ({index}/{len(trading_dates)}): {to_output_date(date)}",
+        )
         for market in MARKETS:
             ohlcv = normalize_ticker_frame(
                 call_with_retry(stock_api.get_market_ohlcv, date, market=market)
@@ -134,14 +175,16 @@ def collect_average_trading_value_20d(trading_dates: list[str]) -> pd.DataFrame:
             time.sleep(REQUEST_SLEEP_SECONDS)
 
     if not frames:
-        return pd.DataFrame(columns=["code", "avg_trading_value_20d"])
+        return pd.DataFrame(columns=["code", AVG_TRADING_VALUE_COLUMN])
 
     combined = pd.concat(frames, ignore_index=True)
-    return (
+    result = (
         combined.groupby("code", as_index=False)["trading_value"]
         .mean()
-        .rename(columns={"trading_value": "avg_trading_value_20d"})
+        .rename(columns={"trading_value": AVG_TRADING_VALUE_COLUMN})
     )
+    emit_progress(progress, f"  평균 거래대금 계산 완료: {len(result):,}개 종목")
+    return result
 
 
 def calculate_estimated_roe(eps: pd.Series, bps: pd.Series) -> pd.Series:
@@ -192,6 +235,11 @@ def parse_date(value: str) -> datetime:
 
 def to_output_date(value: str) -> str:
     return parse_date(value).strftime("%Y-%m-%d")
+
+
+def emit_progress(progress: ProgressCallback, message: str) -> None:
+    if progress is not None:
+        progress(message)
 
 
 def require_pykrx() -> Any:
