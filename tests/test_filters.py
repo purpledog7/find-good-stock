@@ -1,7 +1,7 @@
 import pandas as pd
 
 from config import AVG_TRADING_VALUE_COLUMN
-from src.criteria import STRICT_FILTER_CRITERIA
+from src.criteria import STRICT_FILTER_CRITERIA, FilterCriteria
 from src.filters import apply_value_filters
 
 
@@ -84,3 +84,33 @@ def test_apply_value_filters_supports_strict_criteria():
     result = apply_value_filters(df, STRICT_FILTER_CRITERIA)
 
     assert result["code"].tolist() == ["strict_pass"]
+
+
+def test_apply_value_filters_supports_max_market_cap():
+    df = pd.DataFrame(
+        [
+            {
+                "market_cap": 100_000_000_000,
+                AVG_TRADING_VALUE_COLUMN: 1_000_000_000,
+                "per": 8.0,
+                "pbr": 0.9,
+                "estimated_roe": 10.0,
+                "code": "small",
+            },
+            {
+                "market_cap": 300_000_000_000,
+                AVG_TRADING_VALUE_COLUMN: 1_000_000_000,
+                "per": 8.0,
+                "pbr": 0.9,
+                "estimated_roe": 10.0,
+                "code": "large",
+            },
+        ]
+    )
+
+    result = apply_value_filters(
+        df,
+        FilterCriteria(max_market_cap=200_000_000_000),
+    )
+
+    assert result["code"].tolist() == ["small"]

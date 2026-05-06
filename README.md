@@ -66,6 +66,38 @@ net_income, debt_ratio, operating_margin
 python main.py --include-dart --dart-year 2025 --dart-report-code 11011 --dart-fs-div CFS
 ```
 
+## 여러 프로필 추천
+
+단일 기준 Top20 대신 여러 저평가 관점으로 후보를 모으려면 `advisor.py`를 실행해.
+
+```powershell
+python advisor.py
+```
+
+사용하는 기본 프로필:
+
+```text
+balanced, conservative, deep_value, quality_value,
+liquid_value, small_cap_value, low_pbr_focus
+```
+
+결과 파일:
+
+```text
+data/results/YYYY-MM-DD_profile_candidates.csv
+data/results/YYYY-MM-DD_recommend20.csv
+data/results/YYYY-MM-DD_codex_review_prompt.md
+```
+
+`recommendation_score`는 여러 프로필 매칭 수, 기존 score, 유동성, 추정 ROE, 시총 안정성을 합친 추천용 점수야.
+`codex_review_prompt.md`는 Codex App에서 열어 최종 후보를 설명형으로 검토할 때 쓰는 프롬프트야.
+
+특정 프로필만 실행할 수도 있어.
+
+```powershell
+python advisor.py --profile deep_value --profile quality_value
+```
+
 ## v1 기준
 
 - ROE는 `EPS / BPS * 100`으로 계산한 추정값을 사용해.

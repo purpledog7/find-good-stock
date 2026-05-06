@@ -1,5 +1,7 @@
 from pathlib import Path
 
+APP_VERSION = "0.3.0"
+
 MARKETS = ("KOSPI", "KOSDAQ")
 
 LOOKBACK_TRADING_DAYS = 60

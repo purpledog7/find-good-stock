@@ -4,7 +4,7 @@ import argparse
 import sys
 from datetime import datetime
 
-from config import DART_OUTPUT_COLUMNS, TOP_N
+from config import APP_VERSION, DART_OUTPUT_COLUMNS, TOP_N
 from src.ai_analyzer import add_summary
 from src.collector import collect_all_stock_data
 from src.criteria import (
@@ -36,6 +36,7 @@ def main() -> None:
 
 def run(args: argparse.Namespace) -> None:
     criteria = build_filter_criteria(args)
+    print_progress(f"find-good-stock v{APP_VERSION}")
     print_progress("저평가 주식 스캔을 시작해.")
     collected_df, run_date = collect_all_stock_data(args.date, progress=print_progress)
 
@@ -137,6 +138,7 @@ def build_filter_criteria(args: argparse.Namespace) -> FilterCriteria:
     criteria = update_criteria(
         criteria,
         min_market_cap=to_won(args.min_market_cap_eok),
+        max_market_cap=to_won(args.max_market_cap_eok),
         min_avg_trading_value=to_won(args.min_avg_trading_value_eok),
         max_per=args.max_per,
         max_pbr=args.max_pbr,
@@ -145,6 +147,8 @@ def build_filter_criteria(args: argparse.Namespace) -> FilterCriteria:
 
     if criteria.min_market_cap <= 0:
         raise ValueError("최소 시가총액은 0보다 커야 해.")
+    if criteria.max_market_cap is not None and criteria.max_market_cap < criteria.min_market_cap:
+        raise ValueError("최대 시가총액은 최소 시가총액보다 크거나 같아야 해.")
     if criteria.min_avg_trading_value <= 0:
         raise ValueError("최소 평균 거래대금은 0보다 커야 해.")
     if criteria.max_per <= 0 or criteria.max_pbr <= 0:
@@ -194,6 +198,7 @@ def parse_args() -> argparse.Namespace:
         help="더 보수적인 필터 기준을 사용해. 시총 500억, 거래대금 10억, PER 10, PBR 1.0, ROE 10 기준이야.",
     )
     parser.add_argument("--min-market-cap-eok", type=float, help="최소 시가총액. 억 원 단위야.")
+    parser.add_argument("--max-market-cap-eok", type=float, help="최대 시가총액. 억 원 단위야.")
     parser.add_argument(
         "--min-avg-trading-value-eok",
         type=float,

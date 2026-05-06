@@ -32,4 +32,8 @@ def apply_value_filters(
         & (df["pbr"] <= criteria.max_pbr)
         & (df["estimated_roe"] >= criteria.min_estimated_roe)
     )
+
+    if criteria.max_market_cap is not None:
+        mask &= df["market_cap"] <= criteria.max_market_cap
+
     return df.loc[mask].copy()

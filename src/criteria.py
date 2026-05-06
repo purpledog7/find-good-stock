@@ -19,6 +19,7 @@ from config import (
 @dataclass(frozen=True)
 class FilterCriteria:
     min_market_cap: int = MIN_MARKET_CAP
+    max_market_cap: int | None = None
     min_avg_trading_value: int = MIN_AVG_TRADING_VALUE_20D
     max_per: float = MAX_PER
     max_pbr: float = MAX_PBR

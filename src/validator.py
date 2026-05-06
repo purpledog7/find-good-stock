@@ -247,6 +247,13 @@ def validate_filter_rules(
         if count:
             errors.append(f"{label}에 {rule}인 행이 {count}개 있어.")
 
+    if criteria.max_market_cap is not None:
+        count = int((market_cap > criteria.max_market_cap).sum())
+        if count:
+            errors.append(
+                f"{label}에 시가총액 {criteria.max_market_cap:,} 초과인 행이 {count}개 있어."
+            )
+
 
 def validate_display_columns(label: str, df: pd.DataFrame, errors: list[str]) -> None:
     market_cap = pd.to_numeric(df["market_cap"], errors="coerce")
