@@ -12,6 +12,8 @@ def sample_row(code, per, pbr, roe, market_cap=100_000_000_000, liquidity=2_000_
         "code": code,
         "name": f"name-{code}",
         "market": "KOSPI",
+        "sector": "제조업",
+        "industry": "테스트 산업",
         "price": 10_000,
         "market_cap": market_cap,
         "per": per,
@@ -44,6 +46,7 @@ def test_scan_profiles_adds_profile_rank_and_profile_score():
     assert result.loc[0, "profile"] == "test"
     assert result.loc[0, "profile_rank"] == 1
     assert result.loc[0, "profile_score"] > 0
+    assert result.loc[0, "sector"] == "제조업"
     assert result.loc[0, "market_cap_eok"] == 1000.0
     assert result.loc[0, AVG_TRADING_VALUE_EOK_COLUMN] == 20.0
 
@@ -84,5 +87,6 @@ def test_build_recommendations_rewards_multiple_profile_matches():
     assert len(merged) == 2
     assert first["code"] == "000001"
     assert first["profile_count"] == 2
+    assert first["sector"] == "제조업"
     assert first["matched_profiles"] == "balanced, deep_value"
     assert "2개 프로필" in first["selected_reason"]

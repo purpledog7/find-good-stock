@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import AVG_TRADING_VALUE_COLUMN, AVG_TRADING_VALUE_EOK_COLUMN, CSV_ENCODING
+from config import (
+    AVG_TRADING_VALUE_COLUMN,
+    AVG_TRADING_VALUE_EOK_COLUMN,
+    CSV_ENCODING,
+    NEWS_OUTPUT_COLUMNS,
+    SECTOR_COLUMNS,
+)
 from src.exporter import add_display_columns
 from src.filters import apply_value_filters
 from src.profiles import ScanProfile
@@ -17,6 +23,8 @@ RECOMMENDATION_COLUMNS = [
     "code",
     "name",
     "market",
+    "sector",
+    "industry",
     "recommendation_score",
     "selected_reason",
     "risk_note",
@@ -35,6 +43,7 @@ RECOMMENDATION_COLUMNS = [
     "estimated_roe",
     AVG_TRADING_VALUE_COLUMN,
     AVG_TRADING_VALUE_EOK_COLUMN,
+    *NEWS_OUTPUT_COLUMNS,
 ]
 
 CANDIDATE_COLUMNS = [
@@ -42,6 +51,8 @@ CANDIDATE_COLUMNS = [
     "code",
     "name",
     "market",
+    "sector",
+    "industry",
     "profile",
     "profile_rank",
     "profile_score",
@@ -84,6 +95,7 @@ def scan_profiles(
         return pd.DataFrame(columns=CANDIDATE_COLUMNS)
 
     candidates = pd.concat(frames, ignore_index=True)
+    candidates = ensure_columns(candidates, SECTOR_COLUMNS)
     return candidates[CANDIDATE_COLUMNS]
 
 
@@ -93,6 +105,8 @@ def build_recommendations(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     if candidates_df.empty:
         return candidates_df.copy(), pd.DataFrame(columns=RECOMMENDATION_COLUMNS)
+
+    candidates_df = ensure_columns(candidates_df, SECTOR_COLUMNS)
 
     profile_count = candidates_df.groupby("code")["profile"].nunique()
     best_score = candidates_df.groupby("code")["profile_score"].max()
@@ -129,6 +143,8 @@ def build_recommendations(
     result["final_rank"] = range(1, len(result) + 1)
 
     recommendations = result.head(top_n).copy()
+    result = ensure_columns(result, NEWS_OUTPUT_COLUMNS)
+    recommendations = ensure_columns(recommendations, NEWS_OUTPUT_COLUMNS)
     return result[RECOMMENDATION_COLUMNS], recommendations[RECOMMENDATION_COLUMNS]
 
 
@@ -185,3 +201,11 @@ def save_advisor_results(
     recommendations_df.to_csv(recommendations_path, index=False, encoding=CSV_ENCODING)
 
     return candidates_path, recommendations_path
+
+
+def ensure_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    result = df.copy()
+    for column in columns:
+        if column not in result.columns:
+            result[column] = ""
+    return result

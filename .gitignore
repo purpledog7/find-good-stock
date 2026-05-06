@@ -1,4 +1,7 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+.env
+data/cache/
 data/results/*.csv
+data/results/*.md

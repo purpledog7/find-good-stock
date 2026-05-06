@@ -30,6 +30,20 @@ RETRY_SLEEP_SECONDS = 1.5
 
 RESULT_DIR = Path("data/results")
 CSV_ENCODING = "utf-8-sig"
+KST_TIMEZONE = "Asia/Seoul"
+
+SECTOR_COLUMNS = [
+    "sector",
+    "industry",
+]
+
+NEWS_OUTPUT_COLUMNS = [
+    "news_count",
+    "news_sentiment",
+    "news_risk_flags",
+    "news_titles",
+    "news_summary",
+]
 
 DART_OUTPUT_COLUMNS = [
     "dart_corp_code",

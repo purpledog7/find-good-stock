@@ -91,12 +91,50 @@ data/results/YYYY-MM-DD_codex_review_prompt.md
 
 `recommendation_score`는 여러 프로필 매칭 수, 기존 score, 유동성, 추정 ROE, 시총 안정성을 합친 추천용 점수야.
 `codex_review_prompt.md`는 Codex App에서 열어 최종 후보를 설명형으로 검토할 때 쓰는 프롬프트야.
+업종 정보는 FinanceDataReader의 KRX-DESC 데이터를 사용해서 기본으로 보강해.
 
 특정 프로필만 실행할 수도 있어.
 
 ```powershell
 python advisor.py --profile deep_value --profile quality_value
 ```
+
+업종 보강을 건너뛰려면:
+
+```powershell
+python advisor.py --skip-sector
+```
+
+## 최근 뉴스 보강
+
+전날 00:00부터 분석 직전까지의 네이버 뉴스 검색 결과를 최종 추천 종목에 붙일 수 있어.
+
+필요한 환경변수:
+
+```powershell
+$env:NAVER_CLIENT_ID="your-naver-client-id"
+$env:NAVER_CLIENT_SECRET="your-naver-client-secret"
+```
+
+실행:
+
+```powershell
+python advisor.py --include-news
+```
+
+추가되는 컬럼:
+
+```text
+news_count, news_sentiment, news_risk_flags, news_titles, news_summary
+```
+
+기간을 직접 지정할 수도 있어.
+
+```powershell
+python advisor.py --include-news --news-from 2026-05-05T00:00:00+09:00 --news-to 2026-05-06T07:30:00+09:00
+```
+
+뉴스 분석은 투자 판단이 아니라 리스크 키워드 점검용이야. 유상증자, 전환사채, 적자, 소송, 거래정지 같은 키워드는 `news_risk_flags`로 표시해.
 
 ## v1 기준
 

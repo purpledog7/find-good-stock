@@ -12,6 +12,8 @@ PROMPT_COLUMNS = [
     "code",
     "name",
     "market",
+    "sector",
+    "industry",
     "recommendation_score",
     "matched_profiles",
     "profile_count",
@@ -21,6 +23,10 @@ PROMPT_COLUMNS = [
     "estimated_roe",
     "market_cap_eok",
     AVG_TRADING_VALUE_EOK_COLUMN,
+    "news_count",
+    "news_sentiment",
+    "news_risk_flags",
+    "news_titles",
     "risk_note",
 ]
 
@@ -40,6 +46,7 @@ def save_codex_review_prompt(
 
 
 def build_codex_review_prompt(recommendations_df: pd.DataFrame, run_date: str) -> str:
+    recommendations_df = ensure_prompt_columns(recommendations_df)
     preview_df = recommendations_df[PROMPT_COLUMNS].copy()
     markdown_table = dataframe_to_markdown(preview_df)
 
@@ -51,6 +58,7 @@ def build_codex_review_prompt(recommendations_df: pd.DataFrame, run_date: str) -
 - 이 결과를 투자 추천이 아니라 후보 스크리닝 관점으로 검토해.
 - 최종 20개를 유지하되, 정량 지표상 주의해야 할 종목을 표시해.
 - PER/PBR/추정 ROE/시총/거래대금/매칭 프로필을 근거로 간단히 분석해.
+- 업종과 최근 뉴스 리스크 키워드가 있으면 함께 반영해.
 - 한 업종이나 소형주에 과하게 몰려 있으면 리스크로 적어.
 - 텔레그램으로 보낼 수 있게 간결한 한국어 메시지 형태로 작성해.
 
@@ -63,6 +71,14 @@ def build_codex_review_prompt(recommendations_df: pd.DataFrame, run_date: str) -
 
 {markdown_table}
 """
+
+
+def ensure_prompt_columns(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    for column in PROMPT_COLUMNS:
+        if column not in result.columns:
+            result[column] = ""
+    return result
 
 
 def dataframe_to_markdown(df: pd.DataFrame) -> str:
