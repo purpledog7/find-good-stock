@@ -35,20 +35,32 @@ def save_codex_review_prompt(
     recommendations_df: pd.DataFrame,
     run_date: str,
     result_dir: Path,
+    raw_news_path: Path | None = None,
 ) -> Path:
     result_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = result_dir / f"{run_date}_codex_review_prompt.md"
     prompt_path.write_text(
-        build_codex_review_prompt(recommendations_df, run_date),
+        build_codex_review_prompt(recommendations_df, run_date, raw_news_path),
         encoding="utf-8",
     )
     return prompt_path
 
 
-def build_codex_review_prompt(recommendations_df: pd.DataFrame, run_date: str) -> str:
+def build_codex_review_prompt(
+    recommendations_df: pd.DataFrame,
+    run_date: str,
+    raw_news_path: Path | None = None,
+) -> str:
     recommendations_df = ensure_prompt_columns(recommendations_df)
     preview_df = recommendations_df[PROMPT_COLUMNS].copy()
     markdown_table = dataframe_to_markdown(preview_df)
+    raw_news_section = ""
+    if raw_news_path is not None:
+        raw_news_section = (
+            "\n## 원본 뉴스 CSV\n\n"
+            f"- `{raw_news_path}`\n"
+            "- 뉴스 제목/요약만으로 부족하면 이 CSV를 읽고 종목별 원문 뉴스 목록을 함께 검토해.\n"
+        )
 
     return f"""# Codex Review Prompt - {run_date}
 
@@ -70,6 +82,7 @@ def build_codex_review_prompt(recommendations_df: pd.DataFrame, run_date: str) -
 ## 추천 후보
 
 {markdown_table}
+{raw_news_section}
 """
 
 

@@ -3,13 +3,18 @@ from __future__ import annotations
 import argparse
 import sys
 
-from config import APP_VERSION, RESULT_DIR, TOP_N
+from config import APP_VERSION, NEWS_MAX_ITEMS_DEFAULT, RESULT_DIR, TOP_N
 from src.collector import collect_all_stock_data
 from src.codex_prompt import save_codex_review_prompt
-from src.news_analyzer import enrich_news_info
+from src.news_analyzer import collect_news_info
 from src.news_client import NaverNewsClient, default_news_window, parse_datetime
 from src.profiles import get_profiles
-from src.recommender import build_recommendations, save_advisor_results, scan_profiles
+from src.recommender import (
+    build_recommendations,
+    save_advisor_results,
+    save_raw_news_results,
+    scan_profiles,
+)
 from src.sector_enricher import add_sector_info
 
 
@@ -45,6 +50,7 @@ def run(args: argparse.Namespace) -> None:
     )
     print_progress(f"통합 후보 종목 수: {len(merged_candidates_df):,}")
     print_progress(f"최종 추천 종목 수: {len(recommendations_df):,}")
+    raw_news_df = None
 
     if args.include_news:
         start_dt, end_dt = build_news_window(args)
@@ -52,7 +58,7 @@ def run(args: argparse.Namespace) -> None:
             f"최근 뉴스 보강 중: {start_dt.isoformat()} ~ {end_dt.isoformat()}"
         )
         news_client = NaverNewsClient.from_env()
-        recommendations_df = enrich_news_info(
+        recommendations_df, raw_news_df = collect_news_info(
             recommendations_df,
             news_client,
             start_dt=start_dt,
@@ -67,11 +73,21 @@ def run(args: argparse.Namespace) -> None:
         run_date,
         RESULT_DIR,
     )
-    prompt_path = save_codex_review_prompt(recommendations_df, run_date, RESULT_DIR)
+    raw_news_path = None
+    if raw_news_df is not None:
+        raw_news_path = save_raw_news_results(raw_news_df, run_date, RESULT_DIR)
+    prompt_path = save_codex_review_prompt(
+        recommendations_df,
+        run_date,
+        RESULT_DIR,
+        raw_news_path=raw_news_path,
+    )
 
     print(f"기준일: {run_date}")
     print(f"후보 결과: {candidates_path}")
     print(f"추천 결과: {recommendations_path}")
+    if raw_news_path is not None:
+        print(f"원본 뉴스 결과: {raw_news_path}")
     print(f"Codex 리뷰 프롬프트: {prompt_path}")
 
 
@@ -119,8 +135,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--news-max-items",
         type=int,
-        default=20,
-        help="종목별 네이버 뉴스 검색 개수. 기본값은 20개야.",
+        default=NEWS_MAX_ITEMS_DEFAULT,
+        help=f"종목별 네이버 뉴스 검색 개수. 기본값은 {NEWS_MAX_ITEMS_DEFAULT}개야.",
     )
     return parser.parse_args()
 

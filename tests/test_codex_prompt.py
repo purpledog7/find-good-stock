@@ -1,4 +1,5 @@
 import pandas as pd
+from pathlib import Path
 
 from config import AVG_TRADING_VALUE_EOK_COLUMN
 from src.codex_prompt import build_codex_review_prompt
@@ -26,8 +27,13 @@ def test_build_codex_review_prompt_includes_candidate_table():
         ]
     )
 
-    prompt = build_codex_review_prompt(df, "2026-05-06")
+    prompt = build_codex_review_prompt(
+        df,
+        "2026-05-06",
+        raw_news_path=Path("data/results/2026-05-06_news_raw.csv"),
+    )
 
     assert "Codex Review Prompt - 2026-05-06" in prompt
     assert "000001" in prompt
     assert "balanced, deep_value" in prompt
+    assert "2026-05-06_news_raw.csv" in prompt

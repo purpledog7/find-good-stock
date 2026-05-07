@@ -122,11 +122,21 @@ $env:NAVER_CLIENT_SECRET="your-naver-client-secret"
 python advisor.py --include-news
 ```
 
+기본값은 종목당 뉴스 50개 검색이야. 추천 20개 기준 최대 1,000개 검색이라 네이버 검색 API 일 한도 25,000건 대비 여유가 있어.
+
 추가되는 컬럼:
 
 ```text
 news_count, news_sentiment, news_risk_flags, news_titles, news_summary
 ```
+
+뉴스를 켜면 원본 뉴스 목록도 따로 저장해.
+
+```text
+data/results/YYYY-MM-DD_news_raw.csv
+```
+
+`recommend20.csv`에는 종목별 뉴스 요약이 들어가고, `news_raw.csv`에는 가져온 뉴스 제목, 요약, 링크, 발행 시간이 전부 저장돼. Codex 리뷰 프롬프트에도 이 원본 뉴스 CSV 경로를 넣어둬.
 
 기간을 직접 지정할 수도 있어.
 

@@ -3,7 +3,7 @@ import pandas as pd
 from config import AVG_TRADING_VALUE_COLUMN, AVG_TRADING_VALUE_EOK_COLUMN
 from src.criteria import FilterCriteria
 from src.profiles import ScanProfile
-from src.recommender import build_recommendations, scan_profiles
+from src.recommender import build_recommendations, save_raw_news_results, scan_profiles
 
 
 def sample_row(code, per, pbr, roe, market_cap=100_000_000_000, liquidity=2_000_000_000):
@@ -90,3 +90,25 @@ def test_build_recommendations_rewards_multiple_profile_matches():
     assert first["sector"] == "제조업"
     assert first["matched_profiles"] == "balanced, deep_value"
     assert "2개 프로필" in first["selected_reason"]
+
+
+def test_save_raw_news_results_writes_news_csv(tmp_path):
+    df = pd.DataFrame(
+        [
+            {
+                "code": "000001",
+                "name": "test",
+                "news_rank": 1,
+                "title": "title",
+                "description": "description",
+                "link": "https://example.com",
+                "pub_date": "2026-05-06T07:00:00+09:00",
+                "keyword_flags": "contract",
+            }
+        ]
+    )
+
+    result = save_raw_news_results(df, "2026-05-06", tmp_path)
+
+    assert result.name == "2026-05-06_news_raw.csv"
+    assert result.exists()

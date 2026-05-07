@@ -1,6 +1,6 @@
 from pathlib import Path
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 
 MARKETS = ("KOSPI", "KOSDAQ")
 
@@ -8,6 +8,7 @@ LOOKBACK_TRADING_DAYS = 60
 AVG_TRADING_VALUE_COLUMN = f"avg_trading_value_{LOOKBACK_TRADING_DAYS}d"
 AVG_TRADING_VALUE_EOK_COLUMN = f"{AVG_TRADING_VALUE_COLUMN}_eok"
 TOP_N = 20
+NEWS_MAX_ITEMS_DEFAULT = 50
 
 MIN_MARKET_CAP = 30_000_000_000
 MIN_AVG_TRADING_VALUE_20D = 500_000_000
@@ -43,6 +44,17 @@ NEWS_OUTPUT_COLUMNS = [
     "news_risk_flags",
     "news_titles",
     "news_summary",
+]
+
+NEWS_RAW_COLUMNS = [
+    "code",
+    "name",
+    "news_rank",
+    "title",
+    "description",
+    "link",
+    "pub_date",
+    "keyword_flags",
 ]
 
 DART_OUTPUT_COLUMNS = [

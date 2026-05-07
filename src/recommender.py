@@ -9,6 +9,7 @@ from config import (
     AVG_TRADING_VALUE_EOK_COLUMN,
     CSV_ENCODING,
     NEWS_OUTPUT_COLUMNS,
+    NEWS_RAW_COLUMNS,
     SECTOR_COLUMNS,
 )
 from src.exporter import add_display_columns
@@ -201,6 +202,18 @@ def save_advisor_results(
     recommendations_df.to_csv(recommendations_path, index=False, encoding=CSV_ENCODING)
 
     return candidates_path, recommendations_path
+
+
+def save_raw_news_results(
+    raw_news_df: pd.DataFrame,
+    run_date: str,
+    result_dir: Path,
+) -> Path:
+    result_dir.mkdir(parents=True, exist_ok=True)
+    news_path = result_dir / f"{run_date}_news_raw.csv"
+    raw_news_df = ensure_columns(raw_news_df, NEWS_RAW_COLUMNS)
+    raw_news_df[NEWS_RAW_COLUMNS].to_csv(news_path, index=False, encoding=CSV_ENCODING)
+    return news_path
 
 
 def ensure_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
