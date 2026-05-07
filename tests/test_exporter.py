@@ -1,7 +1,7 @@
 import pandas as pd
 
 from config import AVG_TRADING_VALUE_COLUMN, AVG_TRADING_VALUE_EOK_COLUMN
-from src.exporter import normalize_output_columns
+from src.exporter import normalize_output_columns, save_results
 
 
 def test_normalize_output_columns_adds_eok_display_columns():
@@ -57,3 +57,30 @@ def test_normalize_output_columns_can_include_dart_columns():
 
     assert "operating_profit" in result.columns
     assert "debt_ratio" in result.columns
+
+
+def test_save_results_uses_requested_top_count_in_filename(tmp_path):
+    df = pd.DataFrame(
+        [
+            {
+                "date": "2026-05-06",
+                "rank": 1,
+                "code": "000001",
+                "name": "test",
+                "market": "KOSPI",
+                "price": 10_000,
+                "market_cap": 30_448_259_800,
+                "per": 10.0,
+                "pbr": 1.0,
+                "eps": 1000,
+                "bps": 10_000,
+                "estimated_roe": 10.0,
+                AVG_TRADING_VALUE_COLUMN: 987_654_321,
+                "score": 80.0,
+            }
+        ]
+    )
+
+    _, top_path = save_results(df, df, "2026-05-06", result_dir=tmp_path, top_n=10)
+
+    assert top_path.name == "2026-05-06_top10.csv"

@@ -24,6 +24,25 @@ def test_apply_value_filters_keeps_threshold_boundary_rows():
     assert result["code"].tolist() == ["000001"]
 
 
+def test_apply_value_filters_handles_numeric_strings():
+    df = pd.DataFrame(
+        [
+            {
+                "market_cap": "30000000000",
+                AVG_TRADING_VALUE_COLUMN: "500000000",
+                "per": "12.0",
+                "pbr": "1.2",
+                "estimated_roe": "8.0",
+                "code": "000001",
+            }
+        ]
+    )
+
+    result = apply_value_filters(df)
+
+    assert result["code"].tolist() == ["000001"]
+
+
 def test_apply_value_filters_removes_rows_outside_rules():
     df = pd.DataFrame(
         [

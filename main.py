@@ -35,6 +35,7 @@ def main() -> None:
 
 
 def run(args: argparse.Namespace) -> None:
+    validate_args(args)
     criteria = build_filter_criteria(args)
     print_progress(f"find-good-stock v{APP_VERSION}")
     print_progress("저평가 주식 스캔을 시작해.")
@@ -96,6 +97,7 @@ def run(args: argparse.Namespace) -> None:
         run_date,
         include_summary=args.include_summary,
         include_dart=args.include_dart,
+        top_n=args.top_n,
     )
 
     print_progress("저장된 CSV 검증 중...")
@@ -120,6 +122,11 @@ def run(args: argparse.Namespace) -> None:
 
 def print_progress(message: str) -> None:
     print(message, flush=True)
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    if args.top_n <= 0:
+        raise ValueError("상위 결과 개수는 1개 이상이어야 해.")
 
 
 def print_filter_criteria(criteria: FilterCriteria) -> None:

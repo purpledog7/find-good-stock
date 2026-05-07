@@ -15,6 +15,7 @@ from config import (
     RETRY_COUNT,
     RETRY_SLEEP_SECONDS,
 )
+from src.stock_codes import normalize_stock_code_series
 
 DATE_INPUT_FORMATS = ("%Y%m%d", "%Y-%m-%d")
 _stock_api: Any | None = None
@@ -200,7 +201,7 @@ def normalize_ticker_frame(df: pd.DataFrame) -> pd.DataFrame:
     normalized = df.copy().reset_index()
     first_column = normalized.columns[0]
     normalized = normalized.rename(columns={first_column: "code", "티커": "code"})
-    normalized["code"] = normalized["code"].astype(str).str.zfill(6)
+    normalized["code"] = normalize_stock_code_series(normalized["code"])
     return normalized
 
 

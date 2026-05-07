@@ -8,7 +8,6 @@ from config import (
     AVG_TRADING_VALUE_COLUMN,
     AVG_TRADING_VALUE_EOK_COLUMN,
     CSV_ENCODING,
-    NEWS_OUTPUT_COLUMNS,
     NEWS_RAW_COLUMNS,
     SECTOR_COLUMNS,
 )
@@ -16,6 +15,7 @@ from src.exporter import add_display_columns
 from src.filters import apply_value_filters
 from src.profiles import ScanProfile
 from src.scorer import score_stocks
+from src.stock_codes import normalize_stock_code, normalize_stock_code_series
 
 
 RECOMMENDATION_COLUMNS = [
@@ -44,7 +44,6 @@ RECOMMENDATION_COLUMNS = [
     "estimated_roe",
     AVG_TRADING_VALUE_COLUMN,
     AVG_TRADING_VALUE_EOK_COLUMN,
-    *NEWS_OUTPUT_COLUMNS,
 ]
 
 CANDIDATE_COLUMNS = [
@@ -97,6 +96,7 @@ def scan_profiles(
 
     candidates = pd.concat(frames, ignore_index=True)
     candidates = ensure_columns(candidates, SECTOR_COLUMNS)
+    candidates["code"] = normalize_stock_code_series(candidates["code"])
     return candidates[CANDIDATE_COLUMNS]
 
 
@@ -108,6 +108,7 @@ def build_recommendations(
         return candidates_df.copy(), pd.DataFrame(columns=RECOMMENDATION_COLUMNS)
 
     candidates_df = ensure_columns(candidates_df, SECTOR_COLUMNS)
+    candidates_df["code"] = normalize_stock_code_series(candidates_df["code"])
 
     profile_count = candidates_df.groupby("code")["profile"].nunique()
     best_score = candidates_df.groupby("code")["profile_score"].max()
@@ -144,8 +145,6 @@ def build_recommendations(
     result["final_rank"] = range(1, len(result) + 1)
 
     recommendations = result.head(top_n).copy()
-    result = ensure_columns(result, NEWS_OUTPUT_COLUMNS)
-    recommendations = ensure_columns(recommendations, NEWS_OUTPUT_COLUMNS)
     return result[RECOMMENDATION_COLUMNS], recommendations[RECOMMENDATION_COLUMNS]
 
 
@@ -193,10 +192,11 @@ def save_advisor_results(
     recommendations_df: pd.DataFrame,
     run_date: str,
     result_dir: Path,
+    top_n: int,
 ) -> tuple[Path, Path]:
     result_dir.mkdir(parents=True, exist_ok=True)
     candidates_path = result_dir / f"{run_date}_profile_candidates.csv"
-    recommendations_path = result_dir / f"{run_date}_recommend20.csv"
+    recommendations_path = result_dir / f"{run_date}_recommend{top_n}.csv"
 
     candidates_df.to_csv(candidates_path, index=False, encoding=CSV_ENCODING)
     recommendations_df.to_csv(recommendations_path, index=False, encoding=CSV_ENCODING)
@@ -204,16 +204,107 @@ def save_advisor_results(
     return candidates_path, recommendations_path
 
 
-def save_raw_news_results(
+def save_raw_news_markdown(
     raw_news_df: pd.DataFrame,
+    recommendations_df: pd.DataFrame,
     run_date: str,
     result_dir: Path,
+    start_dt,
+    end_dt,
 ) -> Path:
     result_dir.mkdir(parents=True, exist_ok=True)
-    news_path = result_dir / f"{run_date}_news_raw.csv"
+    news_path = result_dir / f"{run_date}_news_raw.md"
     raw_news_df = ensure_columns(raw_news_df, NEWS_RAW_COLUMNS)
-    raw_news_df[NEWS_RAW_COLUMNS].to_csv(news_path, index=False, encoding=CSV_ENCODING)
+    news_path.write_text(
+        build_raw_news_markdown(
+            raw_news_df[NEWS_RAW_COLUMNS],
+            recommendations_df,
+            run_date,
+            start_dt,
+            end_dt,
+        ),
+        encoding="utf-8",
+    )
     return news_path
+
+
+def build_raw_news_markdown(
+    raw_news_df: pd.DataFrame,
+    recommendations_df: pd.DataFrame,
+    run_date: str,
+    start_dt,
+    end_dt,
+) -> str:
+    lines = [
+        f"# Raw News - {run_date}",
+        "",
+        f"- Window: {start_dt.isoformat()} ~ {end_dt.isoformat()}",
+        "- Source: Naver News Open API",
+        "- Summary: none",
+        "",
+    ]
+
+    news_by_code = {
+        normalize_stock_code(code): group.sort_values("news_rank")
+        for code, group in raw_news_df.groupby("code", dropna=False)
+    }
+
+    for _, company in recommendations_df.sort_values("final_rank").iterrows():
+        code = normalize_stock_code(company["code"])
+        name = str(company["name"])
+        rank = int(company["final_rank"])
+        group = news_by_code.get(code, pd.DataFrame(columns=NEWS_RAW_COLUMNS))
+
+        lines.extend(
+            [
+                f"## {rank}. {name} ({code})",
+                "",
+                f"- Market: {company.get('market', '')}",
+                f"- Sector: {company.get('sector', '')}",
+                f"- Recommendation score: {company.get('recommendation_score', '')}",
+                f"- News count: {len(group)}",
+                "",
+            ]
+        )
+
+        if group.empty:
+            lines.extend(["No news found in the selected window.", ""])
+            continue
+
+        for fallback_rank, (_, item) in enumerate(group.iterrows(), start=1):
+            title = format_markdown_text(item.get("title", ""))
+            description = format_markdown_text(item.get("description", ""))
+            link = str(item.get("link", "")).strip()
+            pub_date = str(item.get("pub_date", "")).strip()
+
+            lines.extend(
+                [
+                    f"### {format_rank(item.get('news_rank'), fallback_rank)}. {title}",
+                    "",
+                    f"- Published: {pub_date}",
+                    f"- Link: {link}",
+                    "",
+                    description,
+                    "",
+                ]
+            )
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def format_markdown_text(value) -> str:
+    if pd.isna(value):
+        return ""
+    return str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def format_rank(value, fallback: int) -> int:
+    try:
+        if pd.isna(value):
+            return fallback
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def ensure_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:

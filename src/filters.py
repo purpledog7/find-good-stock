@@ -23,17 +23,18 @@ def apply_value_filters(
     if missing_columns:
         raise ValueError(f"필터에 필요한 컬럼이 없어: {', '.join(missing_columns)}")
 
+    numeric_df = df[REQUIRED_COLUMNS].apply(pd.to_numeric, errors="coerce")
     mask = (
-        (df["market_cap"] >= criteria.min_market_cap)
-        & (df[AVG_TRADING_VALUE_COLUMN] >= criteria.min_avg_trading_value)
-        & (df["per"] > 0)
-        & (df["per"] <= criteria.max_per)
-        & (df["pbr"] > 0)
-        & (df["pbr"] <= criteria.max_pbr)
-        & (df["estimated_roe"] >= criteria.min_estimated_roe)
+        (numeric_df["market_cap"] >= criteria.min_market_cap)
+        & (numeric_df[AVG_TRADING_VALUE_COLUMN] >= criteria.min_avg_trading_value)
+        & (numeric_df["per"] > 0)
+        & (numeric_df["per"] <= criteria.max_per)
+        & (numeric_df["pbr"] > 0)
+        & (numeric_df["pbr"] <= criteria.max_pbr)
+        & (numeric_df["estimated_roe"] >= criteria.min_estimated_roe)
     )
 
     if criteria.max_market_cap is not None:
-        mask &= df["market_cap"] <= criteria.max_market_cap
+        mask &= numeric_df["market_cap"] <= criteria.max_market_cap
 
     return df.loc[mask].copy()

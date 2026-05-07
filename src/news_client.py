@@ -55,17 +55,65 @@ class NaverNewsClient:
         end_dt: datetime,
         display: int = 20,
     ) -> list[NewsItem]:
-        payload = self.request_news(query, display)
-        items = [parse_news_item(item) for item in payload.get("items", [])]
-        filtered_items = [
-            item
-            for item in items
-            if start_dt <= item.pub_date.astimezone(start_dt.tzinfo) <= end_dt
-        ]
-        time.sleep(self.request_sleep_seconds)
-        return filtered_items
+        target_count = min(max(display, 1), 100)
+        page_size = 100
+        start = 1
+        collected: list[NewsItem] = []
 
-    def request_news(self, query: str, display: int) -> dict:
+        while len(collected) < target_count and start <= 1000:
+            payload = self.request_news(query, page_size, start=start)
+            items = parse_news_items(payload.get("items", []))
+            if not items:
+                break
+
+            reached_older_news = False
+            for item in items:
+                pub_date = item.pub_date.astimezone(start_dt.tzinfo)
+                if start_dt <= pub_date <= end_dt:
+                    collected.append(item)
+                    if len(collected) >= target_count:
+                        break
+                elif pub_date < start_dt:
+                    reached_older_news = True
+
+            if reached_older_news or len(items) < page_size:
+                break
+
+            start += page_size
+            time.sleep(self.request_sleep_seconds)
+
+        time.sleep(self.request_sleep_seconds)
+        return collected[:target_count]
+
+    def search_recent_news_multi(
+        self,
+        queries: list[str],
+        start_dt: datetime,
+        end_dt: datetime,
+        display: int = 20,
+    ) -> list[NewsItem]:
+        target_count = min(max(display, 1), 100)
+        collected: list[NewsItem] = []
+        seen_keys: set[str] = set()
+
+        for query in queries:
+            items = self.search_recent_news(
+                query,
+                start_dt=start_dt,
+                end_dt=end_dt,
+                display=target_count,
+            )
+            for item in items:
+                key = item.link or f"{item.title}:{item.pub_date.isoformat()}"
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                collected.append(item)
+
+        collected = sorted(collected, key=lambda item: item.pub_date, reverse=True)
+        return collected[:target_count]
+
+    def request_news(self, query: str, display: int, start: int = 1) -> dict:
         headers = {
             "X-Naver-Client-Id": self.client_id,
             "X-Naver-Client-Secret": self.client_secret,
@@ -73,7 +121,7 @@ class NaverNewsClient:
         params = {
             "query": query,
             "display": min(max(display, 1), 100),
-            "start": 1,
+            "start": min(max(start, 1), 1000),
             "sort": "date",
         }
 
@@ -96,14 +144,33 @@ class NaverNewsClient:
         raise RuntimeError(f"네이버 뉴스 요청 실패: {last_error}") from last_error
 
 
-def default_news_window(now: datetime | None = None) -> tuple[datetime, datetime]:
+def default_news_window(
+    now: datetime | None = None,
+    run_date: str | None = None,
+) -> tuple[datetime, datetime]:
     timezone = ZoneInfo(KST_TIMEZONE)
-    end_dt = (now or datetime.now(timezone)).astimezone(timezone)
-    start_dt = (end_dt - timedelta(days=1)).replace(
-        hour=0,
-        minute=0,
-        second=0,
-        microsecond=0,
+    current_dt = (now or datetime.now(timezone)).astimezone(timezone)
+
+    if run_date is not None:
+        target_date = datetime.strptime(run_date, "%Y-%m-%d").date()
+        end_dt = datetime(
+            target_date.year,
+            target_date.month,
+            target_date.day,
+            7,
+            tzinfo=timezone,
+        )
+    else:
+        scheduled_end = current_dt.replace(hour=7, minute=0, second=0, microsecond=0)
+        end_dt = current_dt if current_dt < scheduled_end else scheduled_end
+
+    start_date = end_dt.date() - timedelta(days=1)
+    start_dt = datetime(
+        start_date.year,
+        start_date.month,
+        start_date.day,
+        16,
+        tzinfo=timezone,
     )
     return start_dt, end_dt
 
@@ -124,6 +191,16 @@ def parse_news_item(item: dict) -> NewsItem:
     )
 
 
-def clean_html(value: str) -> str:
-    text = re.sub(r"<[^>]+>", "", value)
+def parse_news_items(items: list[dict]) -> list[NewsItem]:
+    parsed_items: list[NewsItem] = []
+    for item in items:
+        try:
+            parsed_items.append(parse_news_item(item))
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+    return parsed_items
+
+
+def clean_html(value) -> str:
+    text = re.sub(r"<[^>]+>", "", str(value or ""))
     return html.unescape(text).strip()

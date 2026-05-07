@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 
 from config import RETRY_COUNT, RETRY_SLEEP_SECONDS
+from src.stock_codes import normalize_stock_code, normalize_stock_code_series
 
 
 CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
@@ -58,6 +59,7 @@ class DartClient:
                 progress,
                 f"  OpenDART 조회 중 ({index}/{len(stock_codes)}): {stock_code}",
             )
+            stock_code = normalize_stock_code(stock_code)
             corp_code = self.find_corp_code(corp_codes, stock_code)
             if not corp_code:
                 rows.append(empty_metrics(stock_code, bsns_year))
@@ -91,22 +93,24 @@ class DartClient:
             return self._corp_codes
 
         if self.cache_path.exists():
-            self._corp_codes = pd.read_csv(
-                self.cache_path,
-                dtype={"corp_code": str, "stock_code": str},
+            self._corp_codes = normalize_corp_codes(
+                pd.read_csv(
+                    self.cache_path,
+                    dtype={"corp_code": str, "stock_code": str},
+                )
             )
             return self._corp_codes
 
         emit_progress(progress, "  OpenDART 기업코드 목록 다운로드 중...")
         response = request_with_retry(CORP_CODE_URL, {"crtfc_key": self.api_key})
-        corp_codes = parse_corp_code_response(response.content)
+        corp_codes = normalize_corp_codes(parse_corp_code_response(response.content))
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         corp_codes.to_csv(self.cache_path, index=False, encoding="utf-8-sig")
         self._corp_codes = corp_codes
         return corp_codes
 
     def find_corp_code(self, corp_codes: pd.DataFrame, stock_code: str) -> str | None:
-        code = str(stock_code).zfill(6)
+        code = normalize_stock_code(stock_code)
         matches = corp_codes.loc[corp_codes["stock_code"] == code, "corp_code"]
         if matches.empty:
             return None
@@ -166,12 +170,26 @@ def parse_corp_code_response(content: bytes) -> pd.DataFrame:
             {
                 "corp_code": (item.findtext("corp_code") or "").strip().zfill(8),
                 "corp_name": (item.findtext("corp_name") or "").strip(),
-                "stock_code": stock_code.zfill(6),
+                "stock_code": normalize_stock_code(stock_code),
                 "modify_date": (item.findtext("modify_date") or "").strip(),
             }
         )
 
     return pd.DataFrame(rows)
+
+
+def normalize_corp_codes(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    for column in ["corp_code", "corp_name", "stock_code", "modify_date"]:
+        if column not in result.columns:
+            result[column] = ""
+    result["corp_code"] = result["corp_code"].astype("string").fillna("").str.strip().str.zfill(8)
+    result["stock_code"] = normalize_stock_code_series(result["stock_code"])
+    result = result[(result["corp_code"] != "") & (result["stock_code"] != "")].copy()
+    return result[["corp_code", "corp_name", "stock_code", "modify_date"]].drop_duplicates(
+        "stock_code",
+        keep="first",
+    )
 
 
 def extract_xml_bytes(content: bytes) -> bytes:
@@ -246,7 +264,7 @@ def empty_metrics(
     corp_code: str | None = None,
 ) -> dict:
     return {
-        "code": stock_code,
+        "code": normalize_stock_code(stock_code),
         "dart_corp_code": corp_code or "",
         "dart_bsns_year": bsns_year,
         "revenue": None,

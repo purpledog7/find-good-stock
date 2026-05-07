@@ -24,7 +24,7 @@ python main.py
 선택 옵션:
 
 ```powershell
-python main.py --date 2026-05-04 --top-n 20
+python main.py --date 2026-05-04 --top-n 10
 python main.py --include-summary
 python main.py --strict
 python main.py --min-market-cap-eok 500 --min-avg-trading-value-eok 10 --max-per 10 --max-pbr 1.0 --min-estimated-roe 10
@@ -38,7 +38,7 @@ CSV는 아래 경로에 저장돼.
 
 ```text
 data/results/YYYY-MM-DD_all.csv
-data/results/YYYY-MM-DD_top20.csv
+data/results/YYYY-MM-DD_top10.csv
 ```
 
 `market_cap`과 `avg_trading_value_60d`는 원 단위야. CSV 보기 편하게 `market_cap_eok`, `avg_trading_value_60d_eok`도 같이 저장해.
@@ -68,7 +68,7 @@ python main.py --include-dart --dart-year 2025 --dart-report-code 11011 --dart-f
 
 ## 여러 프로필 추천
 
-단일 기준 Top20 대신 여러 저평가 관점으로 후보를 모으려면 `advisor.py`를 실행해.
+단일 기준 Top10 대신 여러 저평가 관점으로 후보를 모으려면 `advisor.py`를 실행해.
 
 ```powershell
 python advisor.py
@@ -85,7 +85,7 @@ liquid_value, small_cap_value, low_pbr_focus
 
 ```text
 data/results/YYYY-MM-DD_profile_candidates.csv
-data/results/YYYY-MM-DD_recommend20.csv
+data/results/YYYY-MM-DD_recommend10.csv
 data/results/YYYY-MM-DD_codex_review_prompt.md
 ```
 
@@ -107,7 +107,7 @@ python advisor.py --skip-sector
 
 ## 최근 뉴스 보강
 
-전날 00:00부터 분석 직전까지의 네이버 뉴스 검색 결과를 최종 추천 종목에 붙일 수 있어.
+기준일 전날 16:00부터 기준일 당일 07:00까지의 네이버 뉴스 검색 결과를 최종 추천 종목별 MD 파일로 저장할 수 있어.
 
 필요한 환경변수:
 
@@ -122,29 +122,93 @@ $env:NAVER_CLIENT_SECRET="your-naver-client-secret"
 python advisor.py --include-news
 ```
 
-기본값은 종목당 뉴스 50개 검색이야. 추천 20개 기준 최대 1,000개 검색이라 네이버 검색 API 일 한도 25,000건 대비 여유가 있어.
+기본값은 종목당 최신 뉴스 30개야. `--news-max-items`는 1~100개 사이로 지정할 수 있어. 추천 10개 기준 최대 300개라 네이버 검색 API 일 한도 25,000건 대비 여유가 있어.
 
-추가되는 컬럼:
-
-```text
-news_count, news_sentiment, news_risk_flags, news_titles, news_summary
-```
-
-뉴스를 켜면 원본 뉴스 목록도 따로 저장해.
+뉴스는 CSV에 요약 컬럼으로 붙이지 않고, 원본 목록만 회사별로 묶어 MD 파일에 저장해.
 
 ```text
-data/results/YYYY-MM-DD_news_raw.csv
+data/results/YYYY-MM-DD_news_raw.md
 ```
 
-`recommend20.csv`에는 종목별 뉴스 요약이 들어가고, `news_raw.csv`에는 가져온 뉴스 제목, 요약, 링크, 발행 시간이 전부 저장돼. Codex 리뷰 프롬프트에도 이 원본 뉴스 CSV 경로를 넣어둬.
+`recommend10.csv`는 정량 데이터만 담고, `news_raw.md`에는 가져온 뉴스 제목, 네이버 설명, 링크, 발행 시간이 요약 없이 저장돼. Codex 리뷰 프롬프트에도 이 원본 뉴스 MD 경로를 넣어둬.
 
 기간을 직접 지정할 수도 있어.
 
 ```powershell
-python advisor.py --include-news --news-from 2026-05-05T00:00:00+09:00 --news-to 2026-05-06T07:30:00+09:00
+python advisor.py --include-news --news-from 2026-05-05T16:00:00+09:00 --news-to 2026-05-06T07:00:00+09:00
 ```
 
-뉴스 분석은 투자 판단이 아니라 리스크 키워드 점검용이야. 유상증자, 전환사채, 적자, 소송, 거래정지 같은 키워드는 `news_risk_flags`로 표시해.
+뉴스 분석은 `news_raw.md`를 Codex App에서 읽고 별도로 진행해. 프로그램은 분석하지 않고 데이터 준비까지만 해.
+
+## 스윙 후보 데이터 준비
+
+3~4일 안에 움직일 후보를 별도로 찾으려면 `swing.py`를 실행해.
+
+```powershell
+python swing.py --include-news
+```
+
+스윙 후보는 가치주 필터가 아니라 아래 4개 엔진으로 검사해.
+
+```text
+event_pivot, vcp_squeeze, darvas_breakout, pullback_ladder
+```
+
+최소 1개 엔진에 실제로 매칭된 종목만 후보로 남겨.
+
+기본값:
+
+```text
+후보 Top30
+뉴스 기간: 진입 예정일 2일 전 00:00 ~ 진입 예정일 07:30
+뉴스 개수: 종목당 최신 50개, 옵션 범위 1~100개
+진입 기준가: 시세 기준 거래일 종가
+```
+
+결과 파일:
+
+```text
+data/results/YYYY-MM-DD_swing_candidates.csv
+data/results/YYYY-MM-DD_swing_news_raw.md
+data/results/YYYY-MM-DD_swing_review_prompt.md
+```
+
+`swing_candidates.csv`에는 -4%, -8%, -10% 물타기 가격과 +4%, +7% 익절 가격을 같이 저장해. 이 가격들은 KRX 호가단위에 맞춰서 매수 가격은 아래 호가, 익절 가격은 위 호가로 정리돼. `swing_news_raw.md`는 뉴스 요약 없이 회사별 원문 목록만 저장하고, AI 분석은 `swing_review_prompt.md`를 Codex App에서 읽어서 진행하면 돼.
+
+스윙 후보 CSV에는 엔진별 점수도 같이 들어가.
+
+```text
+event_pivot_score, volume_breakout_score, contraction_score,
+darvas_breakout_score, pullback_ladder_score,
+relative_strength_score, risk_penalty
+```
+
+뉴스 검색은 종목명 단독뿐 아니라 `종목명 주식`, `종목명 공시`, `종목명 계약`, `종목명 실적` 쿼리도 같이 사용해서 촉매성 뉴스를 더 넓게 모아.
+
+시장경보/관리종목성 리스크를 수동으로 반영하려면 아래 파일을 만들면 돼.
+
+```text
+data/cache/swing_market_risk_flags.csv
+```
+
+형식:
+
+```text
+code,risk_flags,exclude_swing
+000000,investment_warning,true
+```
+
+간이 백테스트까지 같이 만들려면:
+
+```powershell
+python swing.py --include-news --include-backtest
+```
+
+추가 결과:
+
+```text
+data/results/YYYY-MM-DD_swing_backtest.csv
+```
 
 ## v1 기준
 

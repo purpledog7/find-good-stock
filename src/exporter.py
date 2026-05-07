@@ -21,11 +21,13 @@ def save_results(
     result_dir: Path = RESULT_DIR,
     include_summary: bool = False,
     include_dart: bool = False,
+    top_n: int | None = None,
 ) -> tuple[Path, Path]:
     result_dir.mkdir(parents=True, exist_ok=True)
 
     all_path = result_dir / f"{run_date}_all.csv"
-    top_path = result_dir / f"{run_date}_top20.csv"
+    top_count = top_n if top_n is not None else len(top_df)
+    top_path = result_dir / f"{run_date}_top{top_count}.csv"
 
     normalize_output_columns(all_df, include_summary, include_dart).to_csv(
         all_path,

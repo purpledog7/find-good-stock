@@ -5,8 +5,9 @@ from typing import Callable
 
 import pandas as pd
 
-from config import NEWS_RAW_COLUMNS
+from config import NEWS_OUTPUT_COLUMNS, NEWS_RAW_COLUMNS
 from src.news_client import NaverNewsClient, NewsItem
+from src.stock_codes import normalize_stock_code
 
 
 ProgressCallback = Callable[[str], None] | None
@@ -22,6 +23,14 @@ NEGATIVE_KEYWORDS = {
     "배임": "breach_of_trust",
     "소송": "lawsuit",
     "거래정지": "trading_halt",
+    "관리종목": "administrative_issue",
+    "투자주의": "market_warning",
+    "투자경고": "investment_warning",
+    "투자위험": "investment_risk",
+    "단기과열": "short_term_overheat",
+    "불성실공시": "disclosure_violation",
+    "상장폐지": "delisting",
+    "환기종목": "investment_attention",
     "감사의견": "audit_opinion",
     "하향": "downgrade",
     "급락": "sharp_drop",
@@ -66,12 +75,12 @@ def collect_news_info(
     max_items: int,
     progress: ProgressCallback = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    result = df.copy()
+    result = df.copy().drop(columns=NEWS_OUTPUT_COLUMNS, errors="ignore")
     summary_rows: list[dict] = []
     raw_rows: list[dict] = []
 
     for index, row in result.iterrows():
-        code = str(row["code"]).zfill(6)
+        code = normalize_stock_code(row["code"])
         name = str(row["name"])
         emit_progress(progress, f"뉴스 검색 중 ({len(summary_rows) + 1}/{len(result)}): {name}")
         try:
@@ -91,6 +100,55 @@ def collect_news_info(
     news_df = pd.DataFrame(summary_rows, index=result.index)
     raw_news_df = pd.DataFrame(raw_rows, columns=NEWS_RAW_COLUMNS)
     return pd.concat([result, news_df], axis=1), raw_news_df
+
+
+def collect_raw_news_info(
+    df: pd.DataFrame,
+    client: NaverNewsClient,
+    start_dt: datetime,
+    end_dt: datetime,
+    max_items: int,
+    progress: ProgressCallback = None,
+    enhanced_queries: bool = False,
+) -> pd.DataFrame:
+    raw_rows: list[dict] = []
+
+    for index, row in enumerate(df.itertuples(index=False), start=1):
+        code = normalize_stock_code(getattr(row, "code"))
+        name = str(getattr(row, "name"))
+        emit_progress(progress, f"뉴스 검색 중 ({index}/{len(df)}): {name}")
+        try:
+            if enhanced_queries:
+                items = client.search_recent_news_multi(
+                    build_stock_news_queries(name),
+                    start_dt=start_dt,
+                    end_dt=end_dt,
+                    display=max_items,
+                )
+            else:
+                items = client.search_recent_news(
+                    name,
+                    start_dt=start_dt,
+                    end_dt=end_dt,
+                    display=max_items,
+                )
+        except RuntimeError as error:
+            emit_progress(progress, f"  뉴스 검색 실패: {error}")
+            items = []
+
+        raw_rows.extend(build_raw_news_rows(code, name, items))
+
+    return pd.DataFrame(raw_rows, columns=NEWS_RAW_COLUMNS)
+
+
+def build_stock_news_queries(name: str) -> list[str]:
+    return [
+        name,
+        f"{name} 주식",
+        f"{name} 공시",
+        f"{name} 계약",
+        f"{name} 실적",
+    ]
 
 
 def summarize_news_items(items: list[NewsItem]) -> dict:

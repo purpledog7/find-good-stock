@@ -8,9 +8,14 @@ def test_add_sector_info_uses_cached_sector_file(tmp_path):
     pd.DataFrame(
         [
             {
-                "code": "000001",
+                "code": 1,
                 "sector": "제조업",
                 "industry": "테스트 산업",
+            },
+            {
+                "code": "000001",
+                "sector": "중복",
+                "industry": "중복 산업",
             }
         ]
     ).to_csv(cache_path, index=False, encoding="utf-8-sig")
@@ -18,5 +23,6 @@ def test_add_sector_info_uses_cached_sector_file(tmp_path):
 
     result = add_sector_info(df, cache_path=cache_path)
 
+    assert len(result) == 1
     assert result.loc[0, "sector"] == "제조업"
     assert result.loc[0, "industry"] == "테스트 산업"
