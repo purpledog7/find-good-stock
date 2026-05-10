@@ -15,6 +15,8 @@ from config import (
     SPECIAL_SWING_CANDIDATE_POOL_N,
     SPECIAL_SWING_FINAL_N,
     SPECIAL_SWING_HISTORY_TRADING_DAYS,
+    SPECIAL_SWING_NEWS_CUTOFF_HOUR,
+    SPECIAL_SWING_NEWS_CUTOFF_MINUTE,
     SPECIAL_SWING_NEWS_MAX_ITEMS_DEFAULT,
     SPECIAL_SWING_NEWS_LOOKBACK_DAYS,
     SPECIAL_SWING_SHORTLIST_N,
@@ -256,7 +258,11 @@ def parse_args() -> argparse.Namespace:
         "--news-lookback-days",
         type=int,
         default=SPECIAL_SWING_NEWS_LOOKBACK_DAYS,
-        help=f"Recent calendar-day window for raw news. Default is {SPECIAL_SWING_NEWS_LOOKBACK_DAYS}.",
+        help=(
+            "Recent calendar-day window for raw news. "
+            f"Default is {SPECIAL_SWING_NEWS_LOOKBACK_DAYS}, ending at "
+            f"{SPECIAL_SWING_NEWS_CUTOFF_HOUR:02d}:{SPECIAL_SWING_NEWS_CUTOFF_MINUTE:02d} KST."
+        ),
     )
     parser.add_argument(
         "--news-time-budget-seconds",

@@ -14,7 +14,7 @@ Technical pre-news pool: 100 stocks
 Phase 2 AI shortlist target: 30 stocks
 Phase 3 final debate target: 10 stocks
 News: latest 50 items per stock from Naver
-News analysis window: most recent 5 calendar dates
+News analysis window: most recent 5 calendar dates ending at 08:00 KST
 News time budget: 180 seconds
 AI mode: raw dataset and prompt generation only; no API key and no direct API scoring
 ```
@@ -39,7 +39,7 @@ versus the market, and tight-base compression.
 
 The script clears `data/results` before writing fresh output. It first saves an
 all-stock audit CSV with eligibility and filter reasons, then collects recent
-raw news for the full Top100 pool and keeps
+raw news for the full Top100 pool through the 08:00 KST cutoff and keeps
 titles, preview descriptions, original links, Naver links, publish times, and
 rule-based helper scores. Codex should read the generated Phase 2 prompt to
 score all 100 candidates and select Top30, then read the Phase 3 prompt to run a

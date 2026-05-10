@@ -8,6 +8,8 @@ import pandas as pd
 
 from config import (
     KST_TIMEZONE,
+    SPECIAL_SWING_NEWS_CUTOFF_HOUR,
+    SPECIAL_SWING_NEWS_CUTOFF_MINUTE,
     SPECIAL_SWING_NEWS_LOOKBACK_DAYS,
     SPECIAL_SWING_TOP_N,
 )
@@ -1115,8 +1117,8 @@ def build_special_news_window(
         target_date.year,
         target_date.month,
         target_date.day,
-        7,
-        30,
+        SPECIAL_SWING_NEWS_CUTOFF_HOUR,
+        SPECIAL_SWING_NEWS_CUTOFF_MINUTE,
         tzinfo=timezone,
     )
     end_dt = min(default_end_dt, current_dt)

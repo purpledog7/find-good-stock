@@ -169,12 +169,12 @@ def test_build_special_news_analysis_window_uses_recent_five_calendar_dates_and_
 
 def test_build_special_ai_news_window_uses_recent_five_calendar_dates():
     start_dt, end_dt = build_special_ai_news_window(
-        "2026-05-11",
-        now=datetime(2026, 5, 10, 7, 30, tzinfo=ZoneInfo(KST_TIMEZONE)),
+        "2026-05-10",
+        now=datetime(2026, 5, 10, 8, 30, tzinfo=ZoneInfo(KST_TIMEZONE)),
     )
 
     assert start_dt.isoformat() == "2026-05-06T00:00:00+09:00"
-    assert end_dt.isoformat() == "2026-05-10T07:30:00+09:00"
+    assert end_dt.isoformat() == "2026-05-10T08:00:00+09:00"
 
 
 def test_analyze_special_news_filters_ambiguous_company_name_noise():
