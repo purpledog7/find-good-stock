@@ -8,6 +8,7 @@ import pandas as pd
 from config import MARKETS, REQUEST_SLEEP_SECONDS, SWING_HISTORY_TRADING_DAYS
 from src.collector import (
     call_with_retry,
+    calculate_estimated_roe,
     coerce_numeric,
     find_latest_market_date,
     get_recent_trading_dates,
@@ -29,6 +30,18 @@ OHLCV_COLUMN_MAP = {
     "거래대금": "trading_value",
     "등락률": "change_rate",
 }
+
+OHLCV_COLUMN_MAP.update(
+    {
+        "시가": "open",
+        "고가": "high",
+        "저가": "low",
+        "종가": "close",
+        "거래량": "volume",
+        "거래대금": "trading_value",
+        "등락률": "change_rate",
+    }
+)
 
 OHLCV_COLUMNS = [
     "date",
@@ -80,17 +93,64 @@ def collect_swing_market_snapshot(
     cap_df = normalize_ticker_frame(
         call_with_retry(stock_api.get_market_cap, date, market=market)
     )
+    fundamental_df = normalize_ticker_frame(
+        call_with_retry(stock_api.get_market_fundamental, date, market=market)
+    )
+    cap_df = cap_df.rename(columns={"종가": "price", "시가총액": "market_cap"})
+    fundamental_df = fundamental_df.rename(
+        columns={"PER": "per", "PBR": "pbr", "EPS": "eps", "BPS": "bps"}
+    )
     cap_df = cap_df.rename(columns={"종가": "price", "시가총액": "market_cap"})
     required_columns = ["code", "price", "market_cap"]
     for column in required_columns:
         if column not in cap_df.columns:
-            return pd.DataFrame(columns=["code", "name", "market", "price", "market_cap"])
+            return empty_snapshot_frame()
 
     result = cap_df[required_columns].copy()
+    fundamental_columns = ["code", "per", "pbr", "eps", "bps"]
+    for column in fundamental_columns:
+        if column not in fundamental_df.columns:
+            fundamental_df[column] = pd.NA
+    result = result.merge(
+        fundamental_df[fundamental_columns],
+        on="code",
+        how="left",
+    )
     result["name"] = result["code"].map(stock_api.get_market_ticker_name)
     result["market"] = market
-    result = coerce_numeric(result, ["price", "market_cap"])
-    return result[["code", "name", "market", "price", "market_cap"]]
+    result = coerce_numeric(result, ["price", "market_cap", "per", "pbr", "eps", "bps"])
+    result["estimated_roe"] = calculate_estimated_roe(result["eps"], result["bps"])
+    return result[
+        [
+            "code",
+            "name",
+            "market",
+            "price",
+            "market_cap",
+            "per",
+            "pbr",
+            "eps",
+            "bps",
+            "estimated_roe",
+        ]
+    ]
+
+
+def empty_snapshot_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "code",
+            "name",
+            "market",
+            "price",
+            "market_cap",
+            "per",
+            "pbr",
+            "eps",
+            "bps",
+            "estimated_roe",
+        ]
+    )
 
 
 def collect_ohlcv_history(

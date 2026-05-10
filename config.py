@@ -1,6 +1,29 @@
+import os
 from pathlib import Path
 
-APP_VERSION = "0.5.0"
+
+def load_local_env(path: Path = Path(".env")) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_env()
+
+APP_VERSION = "0.6.0"
 
 MARKETS = ("KOSPI", "KOSDAQ")
 
@@ -9,11 +32,19 @@ AVG_TRADING_VALUE_COLUMN = f"avg_trading_value_{LOOKBACK_TRADING_DAYS}d"
 AVG_TRADING_VALUE_EOK_COLUMN = f"{AVG_TRADING_VALUE_COLUMN}_eok"
 TOP_N = 10
 NEWS_MAX_ITEMS_DEFAULT = 30
-SWING_TOP_N = 30
-SWING_NEWS_MAX_ITEMS_DEFAULT = 50
-SWING_HISTORY_TRADING_DAYS = 25
+SWING_TOP_N = 20
+SWING_NEWS_MAX_ITEMS_DEFAULT = 30
+SWING_NEWS_LOOKBACK_DAYS = 5
+SWING_HISTORY_TRADING_DAYS = 60
 SWING_BACKTEST_HISTORY_TRADING_DAYS = 80
 SWING_MARKET_RISK_CACHE_PATH = Path("data/cache/swing_market_risk_flags.csv")
+SPECIAL_SWING_TOP_N = 10
+SPECIAL_SWING_CANDIDATE_POOL_N = 100
+SPECIAL_SWING_SHORTLIST_N = 30
+SPECIAL_SWING_FINAL_N = 10
+SPECIAL_SWING_NEWS_MAX_ITEMS_DEFAULT = 50
+SPECIAL_SWING_NEWS_LOOKBACK_DAYS = 5
+SPECIAL_SWING_HISTORY_TRADING_DAYS = 60
 
 MIN_MARKET_CAP = 30_000_000_000
 MIN_AVG_TRADING_VALUE_20D = 500_000_000
@@ -58,6 +89,8 @@ NEWS_RAW_COLUMNS = [
     "title",
     "description",
     "link",
+    "naver_link",
+    "description_truncated",
     "pub_date",
     "keyword_flags",
 ]

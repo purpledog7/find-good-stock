@@ -11,6 +11,7 @@ from config import (
     RESULT_DIR,
     SWING_BACKTEST_HISTORY_TRADING_DAYS,
     SWING_HISTORY_TRADING_DAYS,
+    SWING_NEWS_LOOKBACK_DAYS,
     SWING_NEWS_MAX_ITEMS_DEFAULT,
     SWING_TOP_N,
 )
@@ -26,6 +27,11 @@ from src.swing_exporter import (
     save_swing_review_prompt,
 )
 from src.swing_scanner import build_swing_candidates
+from src.swing_selector import (
+    build_swing_buy_review,
+    save_swing_buy_review,
+    save_swing_buy_review_prompt,
+)
 from src.swing_risk import add_market_risk_info, apply_news_risk_info
 from src.trading_calendar import add_trading_days, next_trading_day
 
@@ -57,24 +63,27 @@ def run(args: argparse.Namespace) -> None:
     )
     signal_date = resolve_signal_date(args.signal_date, market_date)
     validate_signal_date(signal_date, market_date)
-    review_date = add_trading_days(signal_date, 3)
+    review_date_3d = add_trading_days(signal_date, 3)
+    review_date_5d = add_trading_days(signal_date, 5)
     print_progress(f"진입 예정일: {signal_date}")
     print_progress(f"시세 기준 거래일: {market_date}")
-    print_progress(f"3거래일 후 재검토일: {review_date}")
+    print_progress(f"3거래일 후 재검토일: {review_date_3d}")
+    print_progress(f"5거래일 후 재검토일: {review_date_5d}")
 
     if not args.skip_sector:
         print_progress("업종 정보 보강 중...")
         snapshot_df = add_sector_info(snapshot_df, progress=print_progress)
     snapshot_df = add_market_risk_info(snapshot_df, progress=print_progress)
 
-    print_progress("4개 스윙 엔진으로 후보 계산 중...")
+    print_progress("저평가 스윙 엔진으로 후보 계산 중...")
     candidates_df = build_swing_candidates(
         snapshot_df=snapshot_df,
         history_df=history_df,
         signal_date=signal_date,
         market_date=market_date,
         top_n=args.top_n,
-        review_date=review_date,
+        review_date=review_date_3d,
+        review_date_5d=review_date_5d,
     )
     print_progress(f"스윙 후보 수: {len(candidates_df):,}")
 
@@ -82,7 +91,9 @@ def run(args: argparse.Namespace) -> None:
     news_path = None
     if args.include_news and not candidates_df.empty:
         start_dt, end_dt = build_swing_news_window(args, signal_date)
-        print_progress(f"스윙 뉴스 수집 중: {start_dt.isoformat()} ~ {end_dt.isoformat()}")
+        start_text = start_dt.isoformat() if start_dt is not None else "제한 없음"
+        end_text = end_dt.isoformat() if end_dt is not None else "제한 없음"
+        print_progress(f"스윙 뉴스 수집 중: {start_text} ~ {end_text}")
         raw_news_df = collect_raw_news_info(
             candidates_df,
             NaverNewsClient.from_env(),
@@ -102,6 +113,9 @@ def run(args: argparse.Namespace) -> None:
             end_dt,
         )
 
+    buy_review_df = build_swing_buy_review(candidates_df)
+    print_progress(f"매수 검토 Top5 수: {len(buy_review_df):,}")
+
     backtest_path = None
     if args.include_backtest:
         print_progress("간이 스윙 백테스트 계산 중...")
@@ -114,6 +128,8 @@ def run(args: argparse.Namespace) -> None:
         backtest_path = save_swing_backtest(backtest_df, signal_date, RESULT_DIR)
 
     candidates_path = save_swing_candidates(candidates_df, signal_date, RESULT_DIR)
+    buy_review_path = save_swing_buy_review(buy_review_df, signal_date, RESULT_DIR)
+    buy_review_prompt_path = save_swing_buy_review_prompt(buy_review_df, signal_date, RESULT_DIR)
     prompt_path = save_swing_review_prompt(
         candidates_df,
         signal_date,
@@ -125,6 +141,8 @@ def run(args: argparse.Namespace) -> None:
     print(f"진입 예정일: {signal_date}")
     print(f"시세 기준 거래일: {market_date}")
     print(f"스윙 후보 CSV: {candidates_path}")
+    print(f"매수 검토 Top5 CSV: {buy_review_path}")
+    print(f"매수 검토 프롬프트: {buy_review_prompt_path}")
     if news_path is not None:
         print(f"스윙 뉴스 MD: {news_path}")
     if backtest_path is not None:
@@ -134,7 +152,7 @@ def run(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="KOSPI/KOSDAQ 전체에서 3~4일 스윙 후보 데이터를 준비해."
+        description="KOSPI/KOSDAQ 전체에서 3~5일 스윙 후보 데이터를 준비해."
     )
     parser.add_argument(
         "--date",
@@ -164,15 +182,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-news",
         action="store_true",
-        help="후보별 최근 2일 뉴스 원문을 MD로 저장해.",
+        help=f"후보별 최근 {SWING_NEWS_LOOKBACK_DAYS}일 뉴스 미리보기를 MD로 저장해.",
     )
     parser.add_argument(
         "--news-from",
-        help="뉴스 시작 시각. ISO 형식. 없으면 진입 예정일 2일 전 00:00 KST를 사용해.",
+        help=f"뉴스 시작 시각. ISO 형식. 없으면 진입 예정일 {SWING_NEWS_LOOKBACK_DAYS}일 전 00:00 KST를 사용해.",
     )
     parser.add_argument(
         "--news-to",
-        help="뉴스 종료 시각. ISO 형식. 없으면 진입 예정일 당일 07:30 KST를 사용해.",
+        help="뉴스 종료 시각. ISO 형식. 없으면 진입 예정일 07:30 KST를 사용하고 미래 시각이면 현재 시각으로 줄여.",
     )
     parser.add_argument(
         "--news-max-items",
@@ -183,7 +201,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-backtest",
         action="store_true",
-        help="최근 과거 신호의 3거래일 성과를 간이 백테스트 CSV로 저장해.",
+        help="최근 과거 신호의 3/5거래일 성과를 간이 백테스트 CSV로 저장해.",
     )
     parser.add_argument(
         "--backtest-signals",
@@ -221,16 +239,18 @@ def validate_signal_date(signal_date: str, market_date: str) -> None:
 def build_swing_news_window(
     args: argparse.Namespace,
     signal_date: str,
-) -> tuple[datetime, datetime]:
+    now: datetime | None = None,
+) -> tuple[datetime | None, datetime | None]:
     timezone = ZoneInfo(KST_TIMEZONE)
+    current_dt = (now or datetime.now(timezone)).astimezone(timezone)
     target_date = datetime.strptime(signal_date, "%Y-%m-%d").date()
-    start_dt = datetime(
+    default_start_dt = datetime(
         target_date.year,
         target_date.month,
         target_date.day,
         tzinfo=timezone,
-    ) - timedelta(days=2)
-    end_dt = datetime(
+    ) - timedelta(days=SWING_NEWS_LOOKBACK_DAYS)
+    default_end_dt = datetime(
         target_date.year,
         target_date.month,
         target_date.day,
@@ -238,6 +258,19 @@ def build_swing_news_window(
         30,
         tzinfo=timezone,
     )
+
+    end_dt = default_end_dt
+    end_was_capped = False
+    if not args.news_to and end_dt > current_dt:
+        end_dt = current_dt
+        end_was_capped = True
+
+    start_dt = default_start_dt
+    if not args.news_from and end_was_capped:
+        start_dt = end_dt - timedelta(days=SWING_NEWS_LOOKBACK_DAYS)
+    elif not args.news_from and start_dt > end_dt:
+        start_dt = end_dt - timedelta(days=SWING_NEWS_LOOKBACK_DAYS)
+
     if args.news_from:
         start_dt = parse_datetime(args.news_from)
     if args.news_to:

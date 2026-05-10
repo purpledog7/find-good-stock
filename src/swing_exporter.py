@@ -53,12 +53,19 @@ def build_swing_news_markdown(
     start_dt,
     end_dt,
 ) -> str:
+    window_text = (
+        "latest available news, no date filter"
+        if start_dt is None and end_dt is None
+        else f"{start_dt.isoformat() if start_dt is not None else 'unbounded'} ~ "
+        f"{end_dt.isoformat() if end_dt is not None else 'unbounded'}"
+    )
     lines = [
         f"# Swing Raw News - {signal_date}",
         "",
-        f"- Window: {start_dt.isoformat()} ~ {end_dt.isoformat()}",
+        f"- Window: {window_text}",
         "- Source: Naver News Open API",
-        "- Summary: none",
+        "- Summary: none; descriptions are search or publisher metadata previews, not AI summaries or full article bodies",
+        "- Link policy: Original link is preferred; Naver link is kept separately when available",
         "",
     ]
     news_by_code = {
@@ -86,22 +93,28 @@ def build_swing_news_markdown(
         )
 
         if group.empty:
-            lines.extend(["No news found in the selected window.", ""])
+            lines.extend(["No news found in the selected news search.", ""])
             continue
 
         for fallback_rank, (_, item) in enumerate(group.iterrows(), start=1):
-            title = format_markdown_text(item.get("title", ""))
+            title = format_markdown_text(item.get("title", "")).replace("\n", " ")
             description = format_markdown_text(item.get("description", ""))
             link = str(item.get("link", "")).strip()
+            naver_link = str(item.get("naver_link", "")).strip()
+            description_truncated = is_truthy(item.get("description_truncated", False))
             pub_date = str(item.get("pub_date", "")).strip()
             lines.extend(
                 [
                     f"### {format_rank(item.get('news_rank'), fallback_rank)}. {title}",
                     "",
                     f"- Published: {pub_date}",
-                    f"- Link: {link}",
+                    f"- Original link: {link}",
+                    f"- Naver link: {naver_link}",
+                    f"- Preview shortened: {'yes' if description_truncated else 'no'}",
                     "",
-                    description,
+                    "Preview:",
+                    "",
+                    description if description else "(No preview text returned. Open the original link.)",
                     "",
                 ]
             )
@@ -138,19 +151,49 @@ def build_swing_review_prompt(
         "market",
         "sector",
         "swing_score",
+        "value_score",
+        "undervaluation_score",
+        "average_discount_score",
+        "value_trap_penalty",
         "event_pivot_score",
         "volume_breakout_score",
         "contraction_score",
         "darvas_breakout_score",
         "pullback_ladder_score",
+        "pocket_pivot_score",
+        "bb_squeeze_score",
+        "anchored_vwap_score",
+        "accumulation_score",
         "relative_strength_score",
+        "rsi_score",
+        "ema_trend_score",
         "risk_penalty",
         "matched_setups",
         "setup_tags",
         "risk_flags",
+        "per",
+        "pbr",
+        "estimated_roe",
+        "earnings_yield",
+        "book_discount_pct",
+        "per_vs_sector_pct",
+        "pbr_vs_sector_pct",
         "market_return_3d",
         "market_positive_rate_1d",
         "price",
+        "vwap20",
+        "vwap50",
+        "price_vs_ma20_pct",
+        "price_vs_ma50_pct",
+        "price_vs_vwap20_pct",
+        "price_vs_vwap50_pct",
+        "avwap_from_20d_low",
+        "price_vs_avwap_pct",
+        "ema10",
+        "ema20",
+        "ema20_extension_pct",
+        "ema50_extension_pct",
+        "rsi14",
         "tick_size",
         "return_1d",
         "return_3d",
@@ -164,6 +207,8 @@ def build_swing_review_prompt(
         "half_take_profit_price",
         "full_take_profit_price",
         "review_date",
+        "review_date_3d",
+        "review_date_5d",
     ]
     preview_df = ensure_columns(candidates_df, preview_columns)[preview_columns].copy()
     news_section = ""
@@ -178,17 +223,17 @@ def build_swing_review_prompt(
         backtest_section = (
             "\n## 간이 백테스트 CSV\n\n"
             f"- `{backtest_path}`\n"
-            "- 최근 과거 신호에서 3거래일 안에 +4%, +7%, -10%를 찍었는지 확인한 자료야.\n"
+            "- 최근 과거 신호에서 3/5거래일 안에 +4%, +7%, -10%를 찍었는지 확인한 자료야.\n"
         )
 
     return f"""# Swing Review Prompt - {signal_date}
 
-아래 후보는 4개 스윙 엔진이 KOSPI/KOSDAQ 전체를 스캔해서 만든 Top 후보야.
+아래 후보는 저평가, 상대강도, 거래량, 변동성 수축, AVWAP, RSI/EMA 추세 엔진이 KOSPI/KOSDAQ 전체를 스캔해서 만든 Top 후보야.
 
 너의 역할:
 - 투자 추천이 아니라 스윙 후보 검토 관점으로 분석해.
 - 최종 메인 1개와 예비 2개를 골라.
-- 3~4일 안에 +4% 반익절, +7% 전량익절 가능성이 있는지 보수적으로 판단해.
+- 3~5거래일 안에 +4% 반익절, +7% 전량익절 가능성이 있는지 보수적으로 판단해.
 - 전일 종가 기준 진입이 이미 늦었으면 제외해.
 - -4%, -8%, -10% 물타기 가격대가 지지선 관점에서 말이 되는지 검토해.
 - 진입/물타기/익절 가격은 KRX 호가단위에 맞춘 값이야.
@@ -202,7 +247,7 @@ def build_swing_review_prompt(
 - -10% 물타기: 200만원
 - +4% 반익절
 - +7% 전량익절
-- 3거래일 후 재검토
+- 3거래일/5거래일 후 재검토
 
 출력 형식:
 1. 메인 후보 1개: 종목명, 코드, 선택 이유, 진입 보류 조건, 핵심 리스크
@@ -247,3 +292,9 @@ def format_rank(value, fallback: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def is_truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}

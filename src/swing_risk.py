@@ -149,9 +149,13 @@ def apply_news_risk_info(
     result["risk_penalty"] = result["risk_penalty"] + result["news_risk_penalty"]
     result["swing_score"] = (result["swing_score"] - result["news_risk_penalty"]).clip(lower=0).round(2)
     result["risk_flags"] = result.apply(merge_risk_flags, axis=1)
+    sort_columns = ["swing_score"]
+    if "undervaluation_score" in result.columns:
+        sort_columns.append("undervaluation_score")
+    sort_columns.extend(["trading_value_today", "return_1d"])
     result = result.sort_values(
-        by=["swing_score", "trading_value_today", "return_1d"],
-        ascending=[False, False, False],
+        by=sort_columns,
+        ascending=[False] * len(sort_columns),
     ).reset_index(drop=True)
     result["rank"] = range(1, len(result) + 1)
     return result

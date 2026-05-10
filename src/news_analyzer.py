@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Callable
 
@@ -51,8 +52,8 @@ POSITIVE_KEYWORDS = {
 def enrich_news_info(
     df: pd.DataFrame,
     client: NaverNewsClient,
-    start_dt: datetime,
-    end_dt: datetime,
+    start_dt: datetime | None,
+    end_dt: datetime | None,
     max_items: int,
     progress: ProgressCallback = None,
 ) -> pd.DataFrame:
@@ -70,8 +71,8 @@ def enrich_news_info(
 def collect_news_info(
     df: pd.DataFrame,
     client: NaverNewsClient,
-    start_dt: datetime,
-    end_dt: datetime,
+    start_dt: datetime | None,
+    end_dt: datetime | None,
     max_items: int,
     progress: ProgressCallback = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -94,6 +95,7 @@ def collect_news_info(
             emit_progress(progress, f"  뉴스 검색 실패: {error}")
             items = []
 
+        items = filter_relevant_stock_news(name, code, items)
         summary_rows.append(summarize_news_items(items))
         raw_rows.extend(build_raw_news_rows(code, name, items))
 
@@ -105,25 +107,33 @@ def collect_news_info(
 def collect_raw_news_info(
     df: pd.DataFrame,
     client: NaverNewsClient,
-    start_dt: datetime,
-    end_dt: datetime,
+    start_dt: datetime | None,
+    end_dt: datetime | None,
     max_items: int,
     progress: ProgressCallback = None,
     enhanced_queries: bool = False,
+    query_builder: Callable[[str], list[str]] | None = None,
+    enrich_metadata: bool = True,
+    deadline: float | None = None,
 ) -> pd.DataFrame:
     raw_rows: list[dict] = []
 
     for index, row in enumerate(df.itertuples(index=False), start=1):
+        if deadline is not None and time.monotonic() >= deadline:
+            emit_progress(progress, "  news time budget reached; continuing with collected news")
+            break
         code = normalize_stock_code(getattr(row, "code"))
         name = str(getattr(row, "name"))
         emit_progress(progress, f"뉴스 검색 중 ({index}/{len(df)}): {name}")
         try:
             if enhanced_queries:
+                queries = query_builder(name) if query_builder is not None else build_stock_news_queries(name)
                 items = client.search_recent_news_multi(
-                    build_stock_news_queries(name),
+                    queries,
                     start_dt=start_dt,
                     end_dt=end_dt,
                     display=max_items,
+                    enrich_metadata=enrich_metadata,
                 )
             else:
                 items = client.search_recent_news(
@@ -131,6 +141,7 @@ def collect_raw_news_info(
                     start_dt=start_dt,
                     end_dt=end_dt,
                     display=max_items,
+                    enrich_metadata=enrich_metadata,
                 )
         except RuntimeError as error:
             emit_progress(progress, f"  뉴스 검색 실패: {error}")
@@ -149,6 +160,29 @@ def build_stock_news_queries(name: str) -> list[str]:
         f"{name} 계약",
         f"{name} 실적",
     ]
+
+
+def filter_relevant_stock_news(
+    name: str,
+    code: str,
+    items: list[NewsItem],
+) -> list[NewsItem]:
+    return [item for item in items if is_relevant_stock_news(name, code, item)]
+
+
+def is_relevant_stock_news(name: str, code: str, item: NewsItem) -> bool:
+    normalized_name = normalize_news_token(name)
+    normalized_code = normalize_stock_code(code)
+    text = normalize_news_token(f"{item.title} {item.description} {item.link} {item.naver_link}")
+    if normalized_name and normalized_name in text:
+        return True
+    if normalized_code and normalized_code in text:
+        return True
+    return False
+
+
+def normalize_news_token(value: str) -> str:
+    return "".join(str(value).lower().split())
 
 
 def summarize_news_items(items: list[NewsItem]) -> dict:
@@ -187,11 +221,18 @@ def build_raw_news_rows(code: str, name: str, items: list[NewsItem]) -> list[dic
                 "title": item.title,
                 "description": item.description,
                 "link": item.link,
+                "naver_link": item.naver_link,
+                "description_truncated": is_truncated_preview(item.description),
                 "pub_date": item.pub_date.isoformat(),
                 "keyword_flags": ", ".join(sorted(find_item_keyword_flags(item))),
             }
         )
     return rows
+
+
+def is_truncated_preview(value: str) -> bool:
+    text = str(value or "").strip()
+    return text.endswith("...") or text.endswith("…")
 
 
 def find_item_keyword_flags(item: NewsItem) -> set[str]:

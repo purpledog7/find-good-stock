@@ -175,3 +175,57 @@ def test_save_raw_news_markdown_uses_fallback_rank_for_invalid_news_rank(tmp_pat
     )
 
     assert "### 1. title" in result.read_text(encoding="utf-8")
+
+
+def test_save_raw_news_markdown_tolerates_duplicate_columns(tmp_path):
+    raw_news_df = pd.DataFrame(
+        [
+            [
+                "000001",
+                "test",
+                1,
+                "title",
+                "duplicate title",
+                "description",
+                "https://example.com",
+                "2026-05-06T07:00:00+09:00",
+                "",
+            ]
+        ],
+        columns=[
+            "code",
+            "name",
+            "news_rank",
+            "title",
+            "title",
+            "description",
+            "link",
+            "pub_date",
+            "keyword_flags",
+        ],
+    )
+    recommendations_df = pd.DataFrame(
+        [[1, "000001", "test", "KOSPI", "sector-a", "sector-b", 90.0]],
+        columns=[
+            "final_rank",
+            "code",
+            "name",
+            "market",
+            "sector",
+            "sector",
+            "recommendation_score",
+        ],
+    )
+
+    result = save_raw_news_markdown(
+        raw_news_df,
+        recommendations_df,
+        "2026-05-06",
+        tmp_path,
+        pd.Timestamp("2026-05-05T16:00:00+09:00"),
+        pd.Timestamp("2026-05-06T07:00:00+09:00"),
+    )
+
+    content = result.read_text(encoding="utf-8")
+    assert "### 1. title" in content
+    assert "duplicate title" not in content

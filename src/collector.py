@@ -63,7 +63,7 @@ def find_latest_market_date(
         date_str = (current - timedelta(days=offset)).strftime("%Y%m%d")
         emit_progress(progress, f"  기준일 후보 확인: {to_output_date(date_str)}")
         ohlcv = call_with_retry(stock_api.get_market_ohlcv, date_str, market="KOSPI")
-        if not ohlcv.empty:
+        if has_meaningful_market_data(ohlcv):
             return date_str
         time.sleep(REQUEST_SLEEP_SECONDS)
 
@@ -79,13 +79,14 @@ def get_recent_trading_dates(
     current = parse_date(base_date)
     dates: list[str] = []
 
-    for offset in range(90):
+    search_window_days = max(120, count * 3)
+    for offset in range(search_window_days):
         if len(dates) >= count:
             break
 
         date_str = (current - timedelta(days=offset)).strftime("%Y%m%d")
         ohlcv = call_with_retry(stock_api.get_market_ohlcv, date_str, market="KOSPI")
-        if not ohlcv.empty:
+        if has_meaningful_market_data(ohlcv):
             dates.append(date_str)
             emit_progress(progress, f"  거래일 발견 ({len(dates)}/{count}): {to_output_date(date_str)}")
         time.sleep(REQUEST_SLEEP_SECONDS)
@@ -192,6 +193,13 @@ def calculate_estimated_roe(eps: pd.Series, bps: pd.Series) -> pd.Series:
     eps_numeric = pd.to_numeric(eps, errors="coerce")
     bps_numeric = pd.to_numeric(bps, errors="coerce")
     return (eps_numeric / bps_numeric.where(bps_numeric > 0) * 100).round(2)
+
+
+def has_meaningful_market_data(df: pd.DataFrame) -> bool:
+    if df.empty:
+        return False
+    numeric_df = df.apply(pd.to_numeric, errors="coerce")
+    return bool(numeric_df.fillna(0).abs().sum().sum() > 0)
 
 
 def normalize_ticker_frame(df: pd.DataFrame) -> pd.DataFrame:

@@ -68,6 +68,8 @@ def test_save_swing_news_markdown_groups_news_by_candidate(tmp_path):
                 "title": "news title",
                 "description": "news description",
                 "link": "https://example.com",
+                "naver_link": "https://n.news.naver.com/article/001/0000000000",
+                "description_truncated": False,
                 "pub_date": "2026-05-07T07:00:00+09:00",
                 "keyword_flags": "",
             }
@@ -81,14 +83,19 @@ def test_save_swing_news_markdown_groups_news_by_candidate(tmp_path):
         candidates,
         "2026-05-07",
         tmp_path,
-        pd.Timestamp("2026-05-05T00:00:00+09:00"),
+        pd.Timestamp("2026-05-02T00:00:00+09:00"),
         pd.Timestamp("2026-05-07T07:30:00+09:00"),
     )
 
     content = path.read_text(encoding="utf-8")
     assert path.name == "2026-05-07_swing_news_raw.md"
+    assert "- Window: 2026-05-02T00:00:00+09:00 ~ 2026-05-07T07:30:00+09:00" in content
     assert "## 1. alpha (000001)" in content
     assert "### 1. news title" in content
+    assert "- Original link: https://example.com" in content
+    assert "- Naver link: https://n.news.naver.com/article/001/0000000000" in content
+    assert "- Preview shortened: no" in content
+    assert "Preview:" in content
     assert "news description" in content
     assert "keyword_flags" not in content
 
@@ -119,6 +126,61 @@ def test_save_swing_news_markdown_uses_fallback_rank_for_invalid_news_rank(tmp_p
     )
 
     assert "### 1. news title" in path.read_text(encoding="utf-8")
+
+
+def test_save_swing_news_markdown_tolerates_duplicate_columns(tmp_path):
+    raw_news_df = pd.DataFrame(
+        [
+            [
+                "000001",
+                "alpha",
+                1,
+                "news title",
+                "duplicate news title",
+                "news description",
+                "https://example.com",
+                "2026-05-07T07:00:00+09:00",
+                "",
+            ]
+        ],
+        columns=[
+            "code",
+            "name",
+            "news_rank",
+            "title",
+            "title",
+            "description",
+            "link",
+            "pub_date",
+            "keyword_flags",
+        ],
+    )
+    candidates = pd.DataFrame(
+        [[1, "000001", "alpha", "KOSPI", "sector-a", "sector-b", 88.5, "event_pivot"]],
+        columns=[
+            "rank",
+            "code",
+            "name",
+            "market",
+            "sector",
+            "sector",
+            "swing_score",
+            "matched_setups",
+        ],
+    )
+
+    path = save_swing_news_markdown(
+        raw_news_df,
+        candidates,
+        "2026-05-07",
+        tmp_path,
+        pd.Timestamp("2026-05-05T00:00:00+09:00"),
+        pd.Timestamp("2026-05-07T07:30:00+09:00"),
+    )
+
+    content = path.read_text(encoding="utf-8")
+    assert "### 1. news title" in content
+    assert "duplicate news title" not in content
 
 
 def test_build_swing_review_prompt_mentions_main_and_backup_picks():

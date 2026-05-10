@@ -142,26 +142,30 @@ python advisor.py --include-news --news-from 2026-05-05T16:00:00+09:00 --news-to
 
 ## 스윙 후보 데이터 준비
 
-3~4일 안에 움직일 후보를 별도로 찾으려면 `swing.py`를 실행해.
+3~5일 안에 움직일 후보를 별도로 찾으려면 `swing.py`를 실행해.
 
 ```powershell
 python swing.py --include-news
 ```
 
-스윙 후보는 가치주 필터가 아니라 아래 4개 엔진으로 검사해.
+스윙 후보는 저평가 필터를 먼저 통과한 종목 중에서 아래 스윙 엔진으로 검사해.
 
 ```text
-event_pivot, vcp_squeeze, darvas_breakout, pullback_ladder
+event_pivot, vcp_squeeze, darvas_breakout, pullback_ladder,
+pocket_pivot, bb_squeeze, anchored_vwap_support,
+accumulation, relative_strength, rsi_ema_trend
 ```
 
 최소 1개 엔진에 실제로 매칭된 종목만 후보로 남겨.
+단기 급등 추격을 줄이기 위해 1일/3일/5일 상승률, RSI, EMA20/EMA50 이격도가 과한 종목은 기본 후보에서 제외해.
+저평가 종목 중에서도 현재가가 MA20/MA50 또는 20일/50일 VWAP보다 낮은 평균대비 할인 후보를 먼저 정렬해.
 
 기본값:
 
 ```text
-후보 Top30
-뉴스 기간: 진입 예정일 2일 전 00:00 ~ 진입 예정일 07:30
-뉴스 개수: 종목당 최신 50개, 옵션 범위 1~100개
+후보 Top20
+뉴스 기간: 기본값은 최근 5일 최신순 수집
+뉴스 개수: 종목당 최신 30개, 옵션 범위 1~100개
 진입 기준가: 시세 기준 거래일 종가
 ```
 
@@ -169,18 +173,25 @@ event_pivot, vcp_squeeze, darvas_breakout, pullback_ladder
 
 ```text
 data/results/YYYY-MM-DD_swing_candidates.csv
+data/results/YYYY-MM-DD_swing_buy_review_top5.csv
+data/results/YYYY-MM-DD_swing_buy_review_prompt.md
 data/results/YYYY-MM-DD_swing_news_raw.md
 data/results/YYYY-MM-DD_swing_review_prompt.md
 ```
 
-`swing_candidates.csv`에는 -4%, -8%, -10% 물타기 가격과 +4%, +7% 익절 가격을 같이 저장해. 이 가격들은 KRX 호가단위에 맞춰서 매수 가격은 아래 호가, 익절 가격은 위 호가로 정리돼. `swing_news_raw.md`는 뉴스 요약 없이 회사별 원문 목록만 저장하고, AI 분석은 `swing_review_prompt.md`를 Codex App에서 읽어서 진행하면 돼.
+현재 뉴스 기본값은 최근 5일, 종목당 최대 30개야. raw markdown은 네이버 검색/언론사 메타데이터 미리보기와 링크를 저장하고, 기사 원문 전체를 가져오지는 않아.
+
+`swing_candidates.csv`에는 -4%, -8%, -10% 물타기 가격과 +4%, +7% 익절 가격, 3거래일/5거래일 재검토일을 같이 저장해. 이 가격들은 KRX 호가단위에 맞춰서 매수 가격은 아래 호가, 익절 가격은 위 호가로 정리돼. `swing_news_raw.md`는 뉴스 요약 없이 회사별 원문 목록만 저장하고, AI 분석은 `swing_review_prompt.md`를 Codex App에서 읽어서 진행하면 돼.
+`swing_buy_review_top5.csv`는 20개 후보 중에서 상승 여력, 가격 눌림, 근시일 반등 가능성을 다시 채점한 매수 검토 Top5야. `pressed_anchor_count`, `technical_recovery_score`, `pullback_timing_score`, `liquidity_wake_score`, `setup_bounce_score`, `buy_review_eligible`로 왜 Top5에 들어왔는지 같이 확인할 수 있어.
 
 스윙 후보 CSV에는 엔진별 점수도 같이 들어가.
 
 ```text
 event_pivot_score, volume_breakout_score, contraction_score,
-darvas_breakout_score, pullback_ladder_score,
-relative_strength_score, risk_penalty
+darvas_breakout_score, pullback_ladder_score, pocket_pivot_score,
+bb_squeeze_score, anchored_vwap_score, accumulation_score,
+relative_strength_score, undervaluation_score, rsi_score,
+ema_trend_score, average_discount_score, value_trap_penalty, risk_penalty
 ```
 
 뉴스 검색은 종목명 단독뿐 아니라 `종목명 주식`, `종목명 공시`, `종목명 계약`, `종목명 실적` 쿼리도 같이 사용해서 촉매성 뉴스를 더 넓게 모아.

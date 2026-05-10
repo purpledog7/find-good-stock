@@ -293,12 +293,16 @@ def build_raw_news_markdown(
 
 
 def format_markdown_text(value) -> str:
+    value = scalar_value(value)
+    if value is None:
+        return ""
     if pd.isna(value):
         return ""
     return str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 def format_rank(value, fallback: int) -> int:
+    value = scalar_value(value)
     try:
         if pd.isna(value):
             return fallback
@@ -307,8 +311,19 @@ def format_rank(value, fallback: int) -> int:
         return fallback
 
 
+def scalar_value(value):
+    if isinstance(value, pd.Series):
+        if value.empty:
+            return ""
+        non_null = value.dropna()
+        if non_null.empty:
+            return ""
+        return non_null.iloc[0]
+    return value
+
+
 def ensure_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    result = df.copy()
+    result = df.loc[:, ~df.columns.duplicated()].copy()
     for column in columns:
         if column not in result.columns:
             result[column] = ""
