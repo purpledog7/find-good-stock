@@ -108,8 +108,8 @@ def run(args: argparse.Namespace) -> None:
     print_progress(f"clearing result directory: {RESULT_DIR}")
     clear_result_dir(RESULT_DIR, markers=RESULT_MARKERS)
 
-    if args.swing_mode in (POSITION_MODE, ALL_MODE):
-        run_position_swing(
+    if args.swing_mode in (DAY_MODE, ALL_MODE):
+        run_day_swing(
             args=args,
             snapshot_df=snapshot_df,
             history_df=history_df,
@@ -118,8 +118,8 @@ def run(args: argparse.Namespace) -> None:
             review_date_3d=review_date_3d,
             review_date_5d=review_date_5d,
         )
-    if args.swing_mode in (DAY_MODE, ALL_MODE):
-        run_day_swing(
+    if args.swing_mode in (POSITION_MODE, ALL_MODE):
+        run_position_swing(
             args=args,
             snapshot_df=snapshot_df,
             history_df=history_df,

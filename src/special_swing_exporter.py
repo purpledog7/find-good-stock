@@ -304,6 +304,12 @@ def build_special_swing_news_dataset(
             [
                 "day_liquidity_score",
                 "morning_entry_bias_score",
+                "day_orb_readiness_score",
+                "day_vwap_reclaim_score",
+                "day_rvol_score",
+                "day_momentum_ignition_score",
+                "day_risk_reward_score",
+                "day_setup_score",
                 "day_gap_risk_penalty",
                 "day_technical_score",
                 "overnight_news_score",
@@ -360,12 +366,13 @@ def build_special_swing_news_dataset(
 def build_phase2_output_schema(strategy_slug: str) -> dict[str, str]:
     if strategy_slug == "day_swing":
         return {
-            "news_count_score": "0~30 integer; relevant post-close-to-08:00 article count and freshness.",
+            "news_count_score": "0~30 integer; relevant post-close-to-08:00 article count, freshness, and whether coverage is accelerating into the open.",
             "news_quality_score": "0~20 integer; company-specific positive catalyst quality for same-day movement.",
             "news_theme_score": "0~10 integer; active theme fit likely to attract market attention today.",
+            "open_setup_score": "0~20 integer; ORB/VWAP/RVOL readiness using saved day setup fields.",
             "ai_news_score": "0~60 integer; news_count_score + news_quality_score + news_theme_score.",
             "ai_risk_penalty": "0~25 integer; stale/duplicated/unrelated/negative/already-reflected news risk.",
-            "ai_adjusted_score": "day_swing_score + ai_news_score - ai_risk_penalty.",
+            "ai_adjusted_score": "day_swing_score + ai_news_score + open_setup_score - ai_risk_penalty.",
             "ai_news_summary": "Korean summary of the actual same-day catalyst.",
             "ai_risk_summary": "Korean summary of hidden day-trade risks.",
             "ai_judgment": "selected/watch_only/exclude.",
@@ -511,15 +518,21 @@ Read the Top{candidate_count} one-day swing dataset and raw news. Add first-pass
 Use only the news title, preview/description, published time, links, and saved technical data.
 This is for same-day trading: morning entry candidate, afternoon exit. Do not treat it as a 3~5 trading-day hold.
 The most important factor is fresh company-specific news from the post-close to 08:00 KST window.
+Use the saved ORB/VWAP/RVOL proxies as pre-open filters:
+- ORB means Opening Range Breakout: prefer candidates already tight near a trigger, not loose or exhausted.
+- VWAP means volume-weighted average price: prefer reclaim/support proxies such as day_vwap_reclaim_score.
+- RVOL means relative volume: prefer unusually active but not parabolic volume.
+- Gap-and-Go is valid only with a direct fresh catalyst and controlled chase risk.
 
 ## Scoring Rules
 
 - `news_count_score`: 0~30. Give high scores to multiple relevant fresh articles in the overnight window.
 - `news_quality_score`: 0~20. High only for direct company catalysts likely to move price today.
 - `news_theme_score`: 0~10. Add only when the news clearly connects to an active market theme.
+- `open_setup_score`: 0~20. Add when `day_orb_readiness_score`, `day_vwap_reclaim_score`, `day_rvol_score`, and `day_risk_reward_score` show a clean morning entry setup.
 - `ai_news_score`: 0~60. Use `news_count_score + news_quality_score + news_theme_score`.
-- `ai_risk_penalty`: 0~25. Penalize stale, unrelated, duplicated, negative, or already-reflected news.
-- `ai_adjusted_score`: `day_swing_score + ai_news_score - ai_risk_penalty`.
+- `ai_risk_penalty`: 0~25. Penalize stale, unrelated, duplicated, negative, already-reflected news, weak RVOL, poor reward/risk, or gap-chase risk.
+- `ai_adjusted_score`: `day_swing_score + ai_news_score + open_setup_score - ai_risk_penalty`.
 - Select exactly Top{shortlist_n} unless fewer candidates have usable news.
 
 ## Save Output
@@ -529,7 +542,7 @@ The most important factor is fresh company-specific news from the post-close to 
 
 ## Required Scored CSV Columns
 
-`rank, code, name, day_swing_score, day_technical_score, overnight_news_score, news_count_score, news_quality_score, news_theme_score, ai_news_score, ai_risk_penalty, ai_adjusted_score, ai_news_summary, ai_risk_summary, ai_judgment, morning_entry_condition, no_trade_condition, afternoon_exit_plan, selection_reason, key_news_links`
+`rank, code, name, day_swing_score, day_technical_score, day_setup_score, day_orb_readiness_score, day_vwap_reclaim_score, day_rvol_score, day_risk_reward_score, overnight_news_score, news_count_score, news_quality_score, news_theme_score, open_setup_score, ai_news_score, ai_risk_penalty, ai_adjusted_score, ai_news_summary, ai_risk_summary, ai_judgment, morning_entry_condition, no_trade_condition, afternoon_exit_plan, selection_reason, key_news_links`
 
 ## Candidate Preview
 
@@ -664,9 +677,10 @@ def build_day_swing_phase3_prompt(
 
 Review the Phase 2 Top{shortlist_n}. Use four distinct stock-specialist roles plus one leader, debate the candidates, and produce the final ordered Top{final_n}.
 Keep the analysis focused on same-day trading: morning entry and afternoon exit. Use only the dataset, raw news, and saved Phase 2 result.
+Give extra weight to candidates where the saved rule-based data and Phase 2 both agree on ORB readiness, VWAP reclaim, RVOL confirmation, direct catalyst, and clean reward/risk.
 
 Specialist roles:
-- Technical and morning timing specialist: premarket setup, liquidity, reclaim, gap-chase risk, invalidation line.
+- Technical and morning timing specialist: ORB readiness, VWAP reclaim, RVOL, liquidity, reclaim, gap-chase risk, invalidation line.
 - News catalyst specialist: post-close to 08:00 news freshness, directness, and whether it can move price today.
 - Theme and flow specialist: active theme strength and likely market attention today.
 - Risk specialist: negative news, duplicate articles, already-reflected moves, no-trade conditions, liquidity traps.
@@ -675,6 +689,7 @@ Specialist roles:
 Debate process:
 - Round 1: each specialist independently names preferred and rejected stocks with evidence.
 - Round 2: specialists challenge weak catalysts, gap-chase risk, and unclear afternoon exit logic.
+- Round 3: specialists reject names that fail open confirmation: no 5-15 minute opening range breakout/reclaim, weak relative volume, or price immediately losing VWAP/entry line.
 - Final decision: the leader selects exactly Top{final_n} unless fewer candidates are usable.
 
 ## Save Output
@@ -693,7 +708,7 @@ Debate process:
 - Main debate and disagreement points
 - Rejected Top{shortlist_n} candidates and rejection reasons
 - Final Top{final_n} selection reasons
-- Morning entry, invalidation, afternoon exit, and no-trade logic
+- Morning entry, opening confirmation, invalidation, afternoon exit, and no-trade logic
 
 ## Current Rule-Based Preview
 
@@ -775,6 +790,11 @@ def day_stage_preview_columns() -> list[str]:
         "sector",
         "day_swing_score",
         "day_technical_score",
+        "day_setup_score",
+        "day_orb_readiness_score",
+        "day_vwap_reclaim_score",
+        "day_rvol_score",
+        "day_risk_reward_score",
         "day_liquidity_score",
         "morning_entry_bias_score",
         "overnight_news_score",

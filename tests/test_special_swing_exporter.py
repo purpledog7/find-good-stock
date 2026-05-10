@@ -32,6 +32,12 @@ def sample_candidates():
                 "day_technical_score": 36.0,
                 "day_liquidity_score": 14.0,
                 "morning_entry_bias_score": 18.0,
+                "day_setup_score": 42.0,
+                "day_orb_readiness_score": 10.0,
+                "day_vwap_reclaim_score": 9.0,
+                "day_rvol_score": 11.0,
+                "day_momentum_ignition_score": 7.0,
+                "day_risk_reward_score": 5.0,
                 "overnight_news_score": 34.0,
                 "technical_score": 45.0,
                 "theme_hits": "AI, semiconductor",
@@ -148,6 +154,7 @@ def test_save_day_swing_news_dataset_writes_day_file(tmp_path):
     assert path.name == "2026-05-11_day_swing_news_dataset_top100.json"
     assert '"strategy": "day_swing"' in content
     assert "morning entry and afternoon exit" in content
+    assert "day_orb_readiness_score" in content
 
 
 def test_build_special_swing_phase2_prompt_points_to_dataset_and_outputs():
@@ -180,6 +187,8 @@ def test_build_day_swing_phase2_prompt_points_to_day_outputs():
 
     assert "Day Swing Phase 2" in prompt
     assert "morning entry candidate, afternoon exit" in prompt
+    assert "ORB means Opening Range Breakout" in prompt
+    assert "open_setup_score" in prompt
     assert "day_swing_phase2_scored_top100.csv" in prompt
     assert "morning_entry_condition" in prompt
 
@@ -240,6 +249,7 @@ def test_build_day_swing_phase3_prompt_points_to_day_result():
 
     assert "Day Swing Phase 3" in prompt
     assert "morning entry and afternoon exit" in prompt
+    assert "ORB readiness, VWAP reclaim, RVOL" in prompt
     assert "day_swing_phase3_final_top5.csv" in prompt
     assert "no_trade_condition" in prompt
 

@@ -13,7 +13,7 @@ from config import (
     SPECIAL_SWING_NEWS_MAX_ITEMS_DEFAULT,
     SPECIAL_SWING_SHORTLIST_N,
 )
-from special_swing import clear_result_dir, parse_args, validate_args
+from special_swing import clear_result_dir, parse_args, run, validate_args
 
 
 def test_special_swing_parse_args_defaults(monkeypatch):
@@ -125,8 +125,33 @@ def test_clear_result_dir_rejects_unexpected_path(tmp_path):
         clear_result_dir(unsafe_dir)
 
 
+def test_run_all_mode_runs_day_before_position(monkeypatch):
+    calls = []
+    args = valid_args(swing_mode="all", signal_date="2026-05-11", skip_sector=True)
+    snapshot_df = object()
+    history_df = object()
+
+    monkeypatch.setattr(
+        "special_swing.collect_swing_source_data",
+        lambda *args, **kwargs: (snapshot_df, history_df, "2026-05-08", None),
+    )
+    monkeypatch.setattr("special_swing.resolve_signal_date", lambda value, market_date: "2026-05-11")
+    monkeypatch.setattr("special_swing.add_trading_days", lambda signal_date, days: f"{signal_date}+{days}")
+    monkeypatch.setattr("special_swing.add_market_risk_info", lambda df, progress=None: df)
+    monkeypatch.setattr("special_swing.clear_result_dir", lambda *args, **kwargs: calls.append("clear"))
+    monkeypatch.setattr("special_swing.run_day_swing", lambda **kwargs: calls.append("day"))
+    monkeypatch.setattr("special_swing.run_position_swing", lambda **kwargs: calls.append("position"))
+
+    run(args)
+
+    assert calls == ["clear", "day", "position"]
+
+
 def valid_args(**overrides):
     values = {
+        "swing_mode": "position",
+        "date": None,
+        "signal_date": None,
         "shortlist_n": 30,
         "final_n": 10,
         "candidate_pool_n": 100,
@@ -140,6 +165,8 @@ def valid_args(**overrides):
         "news_time_budget_seconds": 180,
         "news_request_sleep_seconds": 0.05,
         "news_request_timeout_seconds": 8,
+        "skip_sector": True,
+        "enrich_news_metadata": False,
     }
     values.update(overrides)
     return Namespace(**values)

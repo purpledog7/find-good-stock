@@ -6,9 +6,11 @@ import pandas as pd
 from config import KST_TIMEZONE, SPECIAL_SWING_NEWS_LOOKBACK_DAYS
 from src.special_swing import (
     SPECIAL_SWING_COLUMNS,
+    add_day_swing_technical_scores,
     analyze_special_news,
     apply_special_news_analysis,
     build_day_swing_ai_news_window,
+    build_day_swing_eligible_mask,
     build_special_ai_news_window,
     build_special_news_analysis_window,
     build_special_stock_news_queries,
@@ -260,6 +262,85 @@ def test_has_community_setup_signal_accepts_single_strong_modern_setup():
     )
 
     assert has_community_setup_signal(setups).tolist() == [True, True, True, False]
+
+
+def test_add_day_swing_technical_scores_adds_orb_vwap_rvol_setup_stack():
+    result = add_day_swing_technical_scores(
+        pd.DataFrame(
+            [
+                {
+                    "trading_value_today": 8_000_000_000,
+                    "avg_trading_value_20d": 3_500_000_000,
+                    "technical_score": 45,
+                    "steady_volume_score": 12,
+                    "reclaim_score": 9,
+                    "breakout_ready_score": 10,
+                    "range_contraction_score": 9,
+                    "tight_base_score": 10,
+                    "pocket_pivot_score": 9,
+                    "relative_strength_score": 12,
+                    "accumulation_5d": 2,
+                    "return_1d": 2,
+                    "return_5d": 3,
+                    "rsi14": 56,
+                    "day_range_pct": 4,
+                    "adr_20d": 6,
+                    "volume_ratio_20d": 1.8,
+                    "trading_value_ratio_20d": 1.7,
+                    "box_position_pct": 78,
+                    "close_position_in_range": 72,
+                    "close_vs_20d_high_pct": -4,
+                    "price_vs_vwap20_pct": 0.8,
+                    "price_vs_avwap_pct": 1.2,
+                    "price_vs_ma20_pct": 1.0,
+                    "ema20_extension_pct": 3,
+                }
+            ]
+        )
+    )
+
+    row = result.iloc[0]
+    assert row["day_orb_readiness_score"] >= 8
+    assert row["day_vwap_reclaim_score"] >= 8
+    assert row["day_rvol_score"] >= 8
+    assert row["day_setup_score"] >= 40
+    assert row["day_technical_score"] >= 50
+    assert "orb_ready" in row["matched_conditions"]
+    assert "vwap_reclaim" in row["matched_conditions"]
+    assert "rvol_confirmed" in row["matched_conditions"]
+
+
+def test_build_day_swing_eligible_mask_tolerates_missing_exclude_swing():
+    mask = build_day_swing_eligible_mask(
+        pd.DataFrame(
+            [
+                {
+                    "market_cap": 120_000_000_000,
+                    "avg_trading_value_20d": 3_500_000_000,
+                    "trading_value_today": 8_000_000_000,
+                    "price": 10_000,
+                    "return_1d": 2,
+                    "return_5d": 3,
+                    "return_20d": 8,
+                    "rsi14": 56,
+                    "day_technical_score": 55,
+                    "steady_volume_score": 12,
+                    "day_rvol_score": 12,
+                    "day_setup_score": 45,
+                    "morning_entry_bias_score": 16,
+                    "day_orb_readiness_score": 12,
+                    "day_vwap_reclaim_score": 12,
+                    "breakout_ready_score": 10,
+                    "reclaim_score": 9,
+                    "pocket_pivot_score": 9,
+                    "relative_strength_score": 12,
+                    "day_gap_risk_penalty": 4,
+                }
+            ]
+        )
+    )
+
+    assert mask.tolist() == [True]
 
 
 def test_build_special_stock_news_queries_adds_theme_queries():
