@@ -151,8 +151,6 @@ def run(args: argparse.Namespace) -> None:
         news_start_dt,
         news_end_dt,
         candidate_count=args.candidate_pool_n,
-        shortlist_n=args.shortlist_n,
-        final_n=args.final_n,
     )
     dataset_path = save_special_swing_news_dataset(
         scored_candidates_df,
@@ -162,6 +160,8 @@ def run(args: argparse.Namespace) -> None:
         news_start_dt,
         news_end_dt,
         candidate_count=args.candidate_pool_n,
+        shortlist_n=args.shortlist_n,
+        final_n=args.final_n,
     )
     phase2_prompt_path = save_special_swing_phase2_prompt(
         scored_candidates_df,

@@ -1,7 +1,12 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+*.tsbuildinfo
 .env
+node_modules/
+.next/
+web/node_modules/
+web/.next/
 data/cache/
 data/results/*.csv
 data/results/*.md
