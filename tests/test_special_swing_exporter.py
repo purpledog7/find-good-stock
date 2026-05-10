@@ -1,9 +1,14 @@
 import pandas as pd
 
 from src.special_swing_exporter import (
+    build_day_swing_phase2_prompt,
+    build_day_swing_phase3_prompt,
     build_special_swing_news_dataset,
     build_special_swing_phase2_prompt,
     build_special_swing_phase3_prompt,
+    save_day_swing_news_dataset,
+    save_day_swing_phase2_prompt,
+    save_day_swing_phase3_prompt,
     save_special_swing_all_evaluated,
     save_special_swing_candidates,
     save_special_swing_news_dataset,
@@ -23,6 +28,11 @@ def sample_candidates():
                 "market": "KOSPI",
                 "sector": "AI",
                 "special_swing_score": 88.5,
+                "day_swing_score": 92.0,
+                "day_technical_score": 36.0,
+                "day_liquidity_score": 14.0,
+                "morning_entry_bias_score": 18.0,
+                "overnight_news_score": 34.0,
                 "technical_score": 45.0,
                 "theme_hits": "AI, semiconductor",
                 "news_growth_score": 17.0,
@@ -123,6 +133,23 @@ def test_save_special_swing_news_dataset_writes_json(tmp_path):
     assert "phase2_output_schema" in path.read_text(encoding="utf-8")
 
 
+def test_save_day_swing_news_dataset_writes_day_file(tmp_path):
+    path = save_day_swing_news_dataset(
+        sample_candidates(),
+        sample_raw_news(),
+        "2026-05-11",
+        tmp_path,
+        pd.Timestamp("2026-05-08T16:00:00+09:00"),
+        pd.Timestamp("2026-05-11T08:00:00+09:00"),
+        candidate_count=100,
+    )
+
+    content = path.read_text(encoding="utf-8")
+    assert path.name == "2026-05-11_day_swing_news_dataset_top100.json"
+    assert '"strategy": "day_swing"' in content
+    assert "morning entry and afternoon exit" in content
+
+
 def test_build_special_swing_phase2_prompt_points_to_dataset_and_outputs():
     prompt = build_special_swing_phase2_prompt(
         sample_candidates(),
@@ -141,6 +168,22 @@ def test_build_special_swing_phase2_prompt_points_to_dataset_and_outputs():
     assert "selection_reason" in prompt
 
 
+def test_build_day_swing_phase2_prompt_points_to_day_outputs():
+    prompt = build_day_swing_phase2_prompt(
+        sample_candidates(),
+        "2026-05-11",
+        dataset_path="data/results/2026-05-11_day_swing_news_dataset_top100.json",
+        news_path="data/results/2026-05-11_day_swing_news_raw_top100.md",
+        shortlist_n=20,
+        candidate_count=100,
+    )
+
+    assert "Day Swing Phase 2" in prompt
+    assert "morning entry candidate, afternoon exit" in prompt
+    assert "day_swing_phase2_scored_top100.csv" in prompt
+    assert "morning_entry_condition" in prompt
+
+
 def test_save_special_swing_phase2_prompt_writes_prompt(tmp_path):
     path = save_special_swing_phase2_prompt(
         sample_candidates(),
@@ -153,6 +196,20 @@ def test_save_special_swing_phase2_prompt_writes_prompt(tmp_path):
     )
 
     assert path.name == "2026-05-11_special_swing_phase2_score_top100_to_top30_prompt.md"
+
+
+def test_save_day_swing_phase2_prompt_writes_prompt(tmp_path):
+    path = save_day_swing_phase2_prompt(
+        sample_candidates(),
+        "2026-05-11",
+        tmp_path,
+        dataset_path="dataset.json",
+        news_path="news.md",
+        shortlist_n=20,
+        candidate_count=100,
+    )
+
+    assert path.name == "2026-05-11_day_swing_phase2_score_top100_to_top20_prompt.md"
 
 
 def test_build_special_swing_phase3_prompt_points_to_phase2_result():
@@ -171,6 +228,22 @@ def test_build_special_swing_phase3_prompt_points_to_phase2_result():
     assert "special_swing_phase3_final_top10.csv" in prompt
 
 
+def test_build_day_swing_phase3_prompt_points_to_day_result():
+    prompt = build_day_swing_phase3_prompt(
+        sample_candidates(),
+        "2026-05-11",
+        phase2_top_path="data/results/2026-05-11_day_swing_phase2_top20.json",
+        news_path="data/results/2026-05-11_day_swing_news_raw_top100.md",
+        shortlist_n=20,
+        final_n=5,
+    )
+
+    assert "Day Swing Phase 3" in prompt
+    assert "morning entry and afternoon exit" in prompt
+    assert "day_swing_phase3_final_top5.csv" in prompt
+    assert "no_trade_condition" in prompt
+
+
 def test_save_special_swing_phase3_prompt_writes_prompt(tmp_path):
     path = save_special_swing_phase3_prompt(
         sample_candidates(),
@@ -183,3 +256,17 @@ def test_save_special_swing_phase3_prompt_writes_prompt(tmp_path):
     )
 
     assert path.name == "2026-05-11_special_swing_phase3_debate_top30_to_top10_prompt.md"
+
+
+def test_save_day_swing_phase3_prompt_writes_prompt(tmp_path):
+    path = save_day_swing_phase3_prompt(
+        sample_candidates(),
+        "2026-05-11",
+        tmp_path,
+        phase2_top_path="phase2.json",
+        news_path="news.md",
+        shortlist_n=20,
+        final_n=5,
+    )
+
+    assert path.name == "2026-05-11_day_swing_phase3_debate_top20_to_top5_prompt.md"

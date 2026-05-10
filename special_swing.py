@@ -10,6 +10,10 @@ import pandas as pd
 
 from config import (
     APP_VERSION,
+    DAY_SWING_CANDIDATE_POOL_N,
+    DAY_SWING_FINAL_N,
+    DAY_SWING_NEWS_MAX_ITEMS_DEFAULT,
+    DAY_SWING_SHORTLIST_N,
     NEWS_RAW_COLUMNS,
     RESULT_DIR,
     SPECIAL_SWING_CANDIDATE_POOL_N,
@@ -26,13 +30,23 @@ from src.news_analyzer import collect_raw_news_info
 from src.news_client import NaverNewsClient
 from src.sector_enricher import add_sector_info
 from src.special_swing import (
+    build_day_swing_ai_news_window,
+    build_day_swing_technical_universe,
     build_special_ai_news_window,
     build_fast_special_stock_news_queries,
     build_special_swing_technical_universe,
+    score_day_swing_news_candidates,
     score_special_news_candidates,
+    select_day_swing_technical_candidates,
     select_special_swing_technical_candidates,
 )
 from src.special_swing_exporter import (
+    save_day_swing_all_evaluated,
+    save_day_swing_candidates,
+    save_day_swing_news_dataset,
+    save_day_swing_news_markdown,
+    save_day_swing_phase2_prompt,
+    save_day_swing_phase3_prompt,
     save_special_swing_all_evaluated,
     save_special_swing_candidates,
     save_special_swing_news_dataset,
@@ -43,6 +57,17 @@ from src.special_swing_exporter import (
 from src.swing_collector import collect_swing_source_data
 from src.swing_risk import add_market_risk_info
 from src.trading_calendar import add_trading_days, next_trading_day
+
+
+POSITION_MODE = "position"
+DAY_MODE = "day"
+ALL_MODE = "all"
+RESULT_MARKERS = (
+    "_special_swing_",
+    "_day_swing_",
+    "special_swing_codex_last_message",
+    "daily_stock_codex_last_message",
+)
 
 
 def main() -> None:
@@ -58,7 +83,7 @@ def main() -> None:
 def run(args: argparse.Namespace) -> None:
     validate_args(args)
     print_progress(f"find-good-stock v{APP_VERSION}")
-    print_progress("special swing scan started")
+    print_progress(f"special swing scan started: mode={args.swing_mode}")
 
     snapshot_df, history_df, market_date, _ = collect_swing_source_data(
         args.date,
@@ -80,7 +105,41 @@ def run(args: argparse.Namespace) -> None:
         snapshot_df = add_sector_info(snapshot_df, progress=print_progress)
     snapshot_df = add_market_risk_info(snapshot_df, progress=print_progress)
 
-    print_progress("evaluating all stocks for special swing setup")
+    print_progress(f"clearing result directory: {RESULT_DIR}")
+    clear_result_dir(RESULT_DIR, markers=RESULT_MARKERS)
+
+    if args.swing_mode in (POSITION_MODE, ALL_MODE):
+        run_position_swing(
+            args=args,
+            snapshot_df=snapshot_df,
+            history_df=history_df,
+            market_date=market_date,
+            signal_date=signal_date,
+            review_date_3d=review_date_3d,
+            review_date_5d=review_date_5d,
+        )
+    if args.swing_mode in (DAY_MODE, ALL_MODE):
+        run_day_swing(
+            args=args,
+            snapshot_df=snapshot_df,
+            history_df=history_df,
+            market_date=market_date,
+            signal_date=signal_date,
+            review_date_3d=review_date_3d,
+            review_date_5d=review_date_5d,
+        )
+
+
+def run_position_swing(
+    args: argparse.Namespace,
+    snapshot_df: pd.DataFrame,
+    history_df: pd.DataFrame,
+    market_date: str,
+    signal_date: str,
+    review_date_3d: str,
+    review_date_5d: str,
+) -> None:
+    print_progress("evaluating all stocks for 3-5 day special swing setup")
     evaluated_df = build_special_swing_technical_universe(
         snapshot_df=snapshot_df,
         history_df=history_df,
@@ -91,7 +150,7 @@ def run(args: argparse.Namespace) -> None:
     )
     print_progress(f"all evaluated stock count: {len(evaluated_df):,}")
 
-    print_progress("building technical candidate pool")
+    print_progress("building 3-5 day technical candidate pool")
     pool_df = select_special_swing_technical_candidates(
         evaluated_df,
         top_n=args.candidate_pool_n,
@@ -130,9 +189,6 @@ def run(args: argparse.Namespace) -> None:
             analysis_start_dt=news_start_dt,
             analysis_end_dt=news_end_dt,
         )
-
-    print_progress(f"clearing result directory: {RESULT_DIR}")
-    clear_result_dir(RESULT_DIR)
 
     all_evaluated_path = save_special_swing_all_evaluated(
         evaluated_df,
@@ -194,12 +250,134 @@ def run(args: argparse.Namespace) -> None:
     print(f"special swing AI phase3 prompt: {phase3_prompt_path}")
 
 
-def clear_result_dir(result_dir: Path) -> None:
+def run_day_swing(
+    args: argparse.Namespace,
+    snapshot_df: pd.DataFrame,
+    history_df: pd.DataFrame,
+    market_date: str,
+    signal_date: str,
+    review_date_3d: str,
+    review_date_5d: str,
+) -> None:
+    print_progress("evaluating all stocks for one-day swing setup")
+    evaluated_df = build_day_swing_technical_universe(
+        snapshot_df=snapshot_df,
+        history_df=history_df,
+        market_date=market_date,
+        signal_date=signal_date,
+        review_date=review_date_3d,
+        review_date_5d=review_date_5d,
+    )
+    print_progress(f"day swing all evaluated stock count: {len(evaluated_df):,}")
+
+    print_progress("building one-day technical candidate pool")
+    pool_df = select_day_swing_technical_candidates(
+        evaluated_df,
+        top_n=args.day_candidate_pool_n,
+    )
+    print_progress(f"day swing technical pool count: {len(pool_df):,}")
+
+    news_start_dt, news_end_dt = build_day_swing_ai_news_window(
+        market_date=market_date,
+        signal_date=signal_date,
+    )
+    news_deadline = build_deadline(args.news_time_budget_seconds)
+    if pool_df.empty:
+        raw_news_df = pd.DataFrame(columns=NEWS_RAW_COLUMNS)
+        scored_candidates_df = pool_df
+    else:
+        print_progress("collecting post-close to 08:00 raw news for one-day technical pool")
+        raw_news_df = collect_raw_news_info(
+            pool_df,
+            NaverNewsClient.from_env(
+                request_sleep_seconds=args.news_request_sleep_seconds,
+                resolve_page_metadata=args.enrich_news_metadata,
+                request_timeout_seconds=args.news_request_timeout_seconds,
+            ),
+            start_dt=news_start_dt,
+            end_dt=news_end_dt,
+            max_items=args.day_news_max_items,
+            progress=print_progress,
+            enhanced_queries=True,
+            query_builder=build_fast_special_stock_news_queries,
+            enrich_metadata=args.enrich_news_metadata,
+            deadline=news_deadline,
+        )
+        scored_candidates_df = score_day_swing_news_candidates(
+            pool_df,
+            raw_news_df,
+            analysis_start_dt=news_start_dt,
+            analysis_end_dt=news_end_dt,
+        )
+
+    all_evaluated_path = save_day_swing_all_evaluated(
+        evaluated_df,
+        signal_date,
+        RESULT_DIR,
+    )
+    candidates_path = save_day_swing_candidates(
+        scored_candidates_df,
+        signal_date,
+        RESULT_DIR,
+        candidate_count=args.day_candidate_pool_n,
+    )
+    news_path = save_day_swing_news_markdown(
+        raw_news_df,
+        scored_candidates_df,
+        signal_date,
+        RESULT_DIR,
+        news_start_dt,
+        news_end_dt,
+        candidate_count=args.day_candidate_pool_n,
+    )
+    dataset_path = save_day_swing_news_dataset(
+        scored_candidates_df,
+        raw_news_df,
+        signal_date,
+        RESULT_DIR,
+        news_start_dt,
+        news_end_dt,
+        candidate_count=args.day_candidate_pool_n,
+        shortlist_n=args.day_shortlist_n,
+        final_n=args.day_final_n,
+    )
+    phase2_prompt_path = save_day_swing_phase2_prompt(
+        scored_candidates_df,
+        signal_date,
+        RESULT_DIR,
+        dataset_path=dataset_path,
+        news_path=news_path,
+        shortlist_n=args.day_shortlist_n,
+        candidate_count=args.day_candidate_pool_n,
+    )
+    phase3_prompt_path = save_day_swing_phase3_prompt(
+        scored_candidates_df.head(args.day_shortlist_n),
+        signal_date,
+        RESULT_DIR,
+        phase2_top_path=RESULT_DIR / f"{signal_date}_day_swing_phase2_top{args.day_shortlist_n}.json",
+        news_path=news_path,
+        shortlist_n=args.day_shortlist_n,
+        final_n=args.day_final_n,
+    )
+
+    print(f"signal date: {signal_date}")
+    print(f"market date: {market_date}")
+    print(f"day swing all evaluated CSV: {all_evaluated_path}")
+    print(f"day swing Top{args.day_candidate_pool_n} CSV: {candidates_path}")
+    print(f"day swing Top{args.day_candidate_pool_n} raw news MD: {news_path}")
+    print(f"day swing Top{args.day_candidate_pool_n} news dataset JSON: {dataset_path}")
+    print(f"day swing AI phase2 prompt: {phase2_prompt_path}")
+    print(f"day swing AI phase3 prompt: {phase3_prompt_path}")
+
+
+def clear_result_dir(result_dir: Path, markers: tuple[str, ...] | None = None) -> None:
     if result_dir.name != "results" or result_dir.parent.name != "data":
         raise RuntimeError(f"refusing to clear unexpected result directory: {result_dir}")
 
     result_dir.mkdir(parents=True, exist_ok=True)
     for entry in result_dir.iterdir():
+        if markers and not any(marker in entry.name for marker in markers):
+            continue
         if entry.is_symlink() or entry.is_file():
             entry.unlink()
         elif entry.is_dir():
@@ -209,6 +387,12 @@ def clear_result_dir(result_dir: Path) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build special swing Top100 candidates and Codex AI analysis prompts."
+    )
+    parser.add_argument(
+        "--swing-mode",
+        choices=[POSITION_MODE, DAY_MODE, ALL_MODE],
+        default=POSITION_MODE,
+        help="Strategy mode: position=3-5 trading-day swing, day=same-day morning entry/afternoon exit, all=both.",
     )
     parser.add_argument(
         "--date",
@@ -247,6 +431,30 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=SPECIAL_SWING_HISTORY_TRADING_DAYS,
         help=f"Trading-day history window. Default is {SPECIAL_SWING_HISTORY_TRADING_DAYS}.",
+    )
+    parser.add_argument(
+        "--day-shortlist-n",
+        type=int,
+        default=DAY_SWING_SHORTLIST_N,
+        help=f"One-day swing AI shortlist count. Default is {DAY_SWING_SHORTLIST_N}.",
+    )
+    parser.add_argument(
+        "--day-final-n",
+        type=int,
+        default=DAY_SWING_FINAL_N,
+        help=f"One-day swing final debate pick count. Default is {DAY_SWING_FINAL_N}.",
+    )
+    parser.add_argument(
+        "--day-candidate-pool-n",
+        type=int,
+        default=DAY_SWING_CANDIDATE_POOL_N,
+        help=f"One-day swing technical candidate pool. Default is {DAY_SWING_CANDIDATE_POOL_N}.",
+    )
+    parser.add_argument(
+        "--day-news-max-items",
+        type=int,
+        default=DAY_SWING_NEWS_MAX_ITEMS_DEFAULT,
+        help=f"One-day swing Naver latest-news search count per stock. Default is {DAY_SWING_NEWS_MAX_ITEMS_DEFAULT}.",
     )
     parser.add_argument(
         "--news-max-items",
@@ -296,6 +504,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    day_shortlist_n = getattr(args, "day_shortlist_n", DAY_SWING_SHORTLIST_N)
+    day_final_n = getattr(args, "day_final_n", DAY_SWING_FINAL_N)
+    day_candidate_pool_n = getattr(args, "day_candidate_pool_n", DAY_SWING_CANDIDATE_POOL_N)
+    day_news_max_items = getattr(args, "day_news_max_items", DAY_SWING_NEWS_MAX_ITEMS_DEFAULT)
     if args.shortlist_n <= 0:
         raise ValueError("shortlist-n must be at least 1")
     if args.final_n <= 0:
@@ -304,12 +516,24 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("final-n must be less than or equal to shortlist-n")
     if args.candidate_pool_n < args.shortlist_n:
         raise ValueError("candidate-pool-n must be greater than or equal to shortlist-n")
+    if day_shortlist_n <= 0:
+        raise ValueError("day-shortlist-n must be at least 1")
+    if day_final_n <= 0:
+        raise ValueError("day-final-n must be at least 1")
+    if day_final_n > day_shortlist_n:
+        raise ValueError("day-final-n must be less than or equal to day-shortlist-n")
+    if day_candidate_pool_n < day_shortlist_n:
+        raise ValueError("day-candidate-pool-n must be greater than or equal to day-shortlist-n")
     if args.history_days < 21:
         raise ValueError("history-days must be at least 21")
     if args.news_max_items <= 0:
         raise ValueError("news-max-items must be at least 1")
     if args.news_max_items > 100:
         raise ValueError("news-max-items must be 100 or less")
+    if day_news_max_items <= 0:
+        raise ValueError("day-news-max-items must be at least 1")
+    if day_news_max_items > 100:
+        raise ValueError("day-news-max-items must be 100 or less")
     if args.news_lookback_days <= 0:
         raise ValueError("news-lookback-days must be at least 1")
     if args.news_time_budget_seconds < 0:

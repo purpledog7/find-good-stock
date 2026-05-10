@@ -3,6 +3,10 @@ from argparse import Namespace
 import pytest
 
 from config import (
+    DAY_SWING_CANDIDATE_POOL_N,
+    DAY_SWING_FINAL_N,
+    DAY_SWING_NEWS_MAX_ITEMS_DEFAULT,
+    DAY_SWING_SHORTLIST_N,
     SPECIAL_SWING_CANDIDATE_POOL_N,
     SPECIAL_SWING_FINAL_N,
     SPECIAL_SWING_NEWS_LOOKBACK_DAYS,
@@ -26,6 +30,21 @@ def test_special_swing_parse_args_defaults(monkeypatch):
     assert args.news_request_sleep_seconds == 0.05
     assert args.news_request_timeout_seconds == 8.0
     assert args.enrich_news_metadata is False
+    assert args.swing_mode == "position"
+    assert args.day_shortlist_n == DAY_SWING_SHORTLIST_N == 20
+    assert args.day_final_n == DAY_SWING_FINAL_N == 5
+    assert args.day_candidate_pool_n == DAY_SWING_CANDIDATE_POOL_N == 100
+    assert args.day_news_max_items == DAY_SWING_NEWS_MAX_ITEMS_DEFAULT == 50
+
+
+def test_special_swing_parse_args_accepts_day_mode(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["special_swing.py", "--swing-mode", "day"])
+
+    args = parse_args()
+
+    assert args.swing_mode == "day"
+    assert args.day_shortlist_n == 20
+    assert args.day_final_n == 5
 
 
 def test_special_swing_parse_args_accepts_top_n_as_shortlist_alias(monkeypatch):
@@ -47,6 +66,13 @@ def test_special_swing_validate_args_rejects_final_larger_than_shortlist():
     args = valid_args(shortlist_n=10, final_n=11)
 
     with pytest.raises(ValueError, match="final-n"):
+        validate_args(args)
+
+
+def test_special_swing_validate_args_rejects_day_final_larger_than_shortlist():
+    args = valid_args(day_shortlist_n=4, day_final_n=5)
+
+    with pytest.raises(ValueError, match="day-final-n"):
         validate_args(args)
 
 
@@ -104,6 +130,10 @@ def valid_args(**overrides):
         "shortlist_n": 30,
         "final_n": 10,
         "candidate_pool_n": 100,
+        "day_shortlist_n": 20,
+        "day_final_n": 5,
+        "day_candidate_pool_n": 100,
+        "day_news_max_items": 50,
         "history_days": 60,
         "news_max_items": 50,
         "news_lookback_days": 5,

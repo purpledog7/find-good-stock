@@ -8,6 +8,7 @@ from src.special_swing import (
     SPECIAL_SWING_COLUMNS,
     analyze_special_news,
     apply_special_news_analysis,
+    build_day_swing_ai_news_window,
     build_special_ai_news_window,
     build_special_news_analysis_window,
     build_special_stock_news_queries,
@@ -175,6 +176,17 @@ def test_build_special_ai_news_window_uses_recent_five_calendar_dates():
 
     assert start_dt.isoformat() == "2026-05-06T00:00:00+09:00"
     assert end_dt.isoformat() == "2026-05-10T08:00:00+09:00"
+
+
+def test_build_day_swing_ai_news_window_uses_post_close_to_morning_cutoff():
+    start_dt, end_dt = build_day_swing_ai_news_window(
+        "2026-05-08",
+        "2026-05-11",
+        now=datetime(2026, 5, 11, 8, 30, tzinfo=ZoneInfo(KST_TIMEZONE)),
+    )
+
+    assert start_dt.isoformat() == "2026-05-08T16:00:00+09:00"
+    assert end_dt.isoformat() == "2026-05-11T08:00:00+09:00"
 
 
 def test_analyze_special_news_filters_ambiguous_company_name_noise():

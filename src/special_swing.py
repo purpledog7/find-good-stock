@@ -7,6 +7,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from config import (
+    DAY_SWING_NEWS_CUTOFF_HOUR,
+    DAY_SWING_NEWS_CUTOFF_MINUTE,
+    DAY_SWING_NEWS_START_HOUR,
+    DAY_SWING_NEWS_START_MINUTE,
     KST_TIMEZONE,
     SPECIAL_SWING_NEWS_CUTOFF_HOUR,
     SPECIAL_SWING_NEWS_CUTOFF_MINUTE,
@@ -115,6 +119,22 @@ SPECIAL_SWING_COLUMNS = [
 SPECIAL_SWING_AUDIT_COLUMNS = SPECIAL_SWING_COLUMNS + [
     "special_swing_eligible",
     "filter_reason",
+]
+
+DAY_SWING_EXTRA_COLUMNS = [
+    "day_liquidity_score",
+    "morning_entry_bias_score",
+    "day_gap_risk_penalty",
+    "day_technical_score",
+    "overnight_news_score",
+    "day_swing_score",
+]
+
+DAY_SWING_COLUMNS = SPECIAL_SWING_COLUMNS + DAY_SWING_EXTRA_COLUMNS
+
+DAY_SWING_AUDIT_COLUMNS = DAY_SWING_COLUMNS + [
+    "day_swing_eligible",
+    "day_filter_reason",
 ]
 
 SPECIAL_NEWS_ANALYSIS_COLUMNS = [
@@ -385,6 +405,54 @@ def select_special_swing_technical_candidates(
     return normalize_special_columns(result.head(top_n).copy())
 
 
+def build_day_swing_technical_universe(
+    snapshot_df: pd.DataFrame,
+    history_df: pd.DataFrame,
+    signal_date: str,
+    market_date: str,
+    review_date: str | None = None,
+    review_date_5d: str | None = None,
+) -> pd.DataFrame:
+    result = build_special_swing_technical_universe(
+        snapshot_df=snapshot_df,
+        history_df=history_df,
+        signal_date=signal_date,
+        market_date=market_date,
+        review_date=review_date,
+        review_date_5d=review_date_5d,
+    )
+    if result.empty:
+        return pd.DataFrame(columns=DAY_SWING_AUDIT_COLUMNS)
+
+    result = add_day_swing_technical_scores(result)
+    result["day_swing_eligible"] = build_day_swing_eligible_mask(result)
+    result["day_filter_reason"] = result.apply(build_day_filter_reason, axis=1)
+    result = sort_day_technical_candidates(result).reset_index(drop=True)
+    result["rank"] = range(1, len(result) + 1)
+    return normalize_day_audit_columns(result.copy())
+
+
+def select_day_swing_technical_candidates(
+    evaluated_df: pd.DataFrame,
+    top_n: int = SPECIAL_SWING_TOP_N,
+) -> pd.DataFrame:
+    if evaluated_df.empty:
+        return pd.DataFrame(columns=DAY_SWING_COLUMNS)
+
+    result = evaluated_df.copy()
+    if "day_swing_eligible" in result.columns:
+        result = result[result["day_swing_eligible"].apply(parse_bool_like)].copy()
+    else:
+        result = result[build_day_swing_eligible_mask(result)].copy()
+
+    if result.empty:
+        return pd.DataFrame(columns=DAY_SWING_COLUMNS)
+
+    result = sort_day_technical_candidates(result).reset_index(drop=True)
+    result["rank"] = range(1, len(result) + 1)
+    return normalize_day_columns(result.head(top_n).copy())
+
+
 def sort_special_technical_candidates(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     for column in [
@@ -409,6 +477,35 @@ def sort_special_technical_candidates(df: pd.DataFrame) -> pd.DataFrame:
             "trading_value_today",
         ],
         ascending=[False, False, False, False, False, False, False],
+    )
+
+
+def sort_day_technical_candidates(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    for column in [
+        "day_swing_eligible",
+        "day_swing_score",
+        "day_technical_score",
+        "morning_entry_bias_score",
+        "day_liquidity_score",
+        "direct_catalyst_score",
+        "trading_value_today",
+        "day_gap_risk_penalty",
+    ]:
+        if column not in result.columns:
+            result[column] = 0
+    return result.sort_values(
+        by=[
+            "day_swing_eligible",
+            "day_swing_score",
+            "day_technical_score",
+            "morning_entry_bias_score",
+            "day_liquidity_score",
+            "direct_catalyst_score",
+            "trading_value_today",
+            "day_gap_risk_penalty",
+        ],
+        ascending=[False, False, False, False, False, False, False, True],
     )
 
 
@@ -455,6 +552,34 @@ def build_special_swing_eligible_mask(df: pd.DataFrame) -> pd.Series:
     return build_special_hard_filter_mask(df) & build_special_setup_filter_mask(df)
 
 
+def build_day_swing_eligible_mask(df: pd.DataFrame) -> pd.Series:
+    result = coerce_special_filter_numeric_columns(df)
+    hard_filter = (
+        (result["market_cap"] >= MIN_SPECIAL_MARKET_CAP)
+        & (result["avg_trading_value_20d"] >= MIN_SPECIAL_AVG_TRADING_VALUE_20D)
+        & (result["trading_value_today"] >= MIN_SPECIAL_TODAY_TRADING_VALUE * 1.5)
+        & (result["price"] >= MIN_SPECIAL_PRICE)
+        & (result["return_1d"].between(-6, 9))
+        & (result["return_5d"].between(-12, 15))
+        & (result["return_20d"].between(-25, 40))
+        & (result["rsi14"].between(32, 76))
+        & (~result["exclude_swing"].apply(parse_bool_like))
+    )
+    entry_setup = (
+        (numeric_series(result, "day_technical_score") >= 22)
+        & (numeric_series(result, "steady_volume_score") >= 8)
+        & (
+            (numeric_series(result, "morning_entry_bias_score") >= 10)
+            | (numeric_series(result, "breakout_ready_score") >= 8)
+            | (numeric_series(result, "reclaim_score") >= 7)
+            | (numeric_series(result, "pocket_pivot_score") >= 8)
+            | (numeric_series(result, "relative_strength_score") >= 10)
+        )
+        & (numeric_series(result, "day_gap_risk_penalty") <= 10)
+    )
+    return hard_filter & entry_setup
+
+
 def build_special_filter_reason(row: pd.Series) -> str:
     reasons: list[str] = []
     if safe_row_number(row, "market_cap") < MIN_SPECIAL_MARKET_CAP:
@@ -487,6 +612,37 @@ def build_special_filter_reason(row: pd.Series) -> str:
         reasons.append("weak_community_setup")
     if safe_row_number(row, "technical_score") < 30:
         reasons.append("technical_score_lt_min")
+    return "pass" if not reasons else ", ".join(dict.fromkeys(reasons))
+
+
+def build_day_filter_reason(row: pd.Series) -> str:
+    reasons: list[str] = []
+    if safe_row_number(row, "market_cap") < MIN_SPECIAL_MARKET_CAP:
+        reasons.append("market_cap_lt_min")
+    if safe_row_number(row, "avg_trading_value_20d") < MIN_SPECIAL_AVG_TRADING_VALUE_20D:
+        reasons.append("avg_trading_value_lt_min")
+    if safe_row_number(row, "trading_value_today") < MIN_SPECIAL_TODAY_TRADING_VALUE * 1.5:
+        reasons.append("today_trading_value_lt_day_min")
+    if safe_row_number(row, "price") < MIN_SPECIAL_PRICE:
+        reasons.append("price_lt_min")
+    if not (-6 <= safe_row_number(row, "return_1d") <= 9):
+        reasons.append("return_1d_out_of_day_range")
+    if not (-12 <= safe_row_number(row, "return_5d") <= 15):
+        reasons.append("return_5d_out_of_day_range")
+    if not (-25 <= safe_row_number(row, "return_20d") <= 40):
+        reasons.append("return_20d_out_of_day_range")
+    if not (32 <= safe_row_number(row, "rsi14") <= 76):
+        reasons.append("rsi14_out_of_day_range")
+    if parse_bool_like(row.get("exclude_swing", False)):
+        reasons.append("excluded_by_rule")
+    if safe_row_number(row, "day_technical_score") < 22:
+        reasons.append("day_technical_score_lt_min")
+    if safe_row_number(row, "steady_volume_score") < 8:
+        reasons.append("weak_day_liquidity")
+    if safe_row_number(row, "morning_entry_bias_score") < 10:
+        reasons.append("weak_morning_entry_bias")
+    if safe_row_number(row, "day_gap_risk_penalty") > 10:
+        reasons.append("gap_risk_too_high")
     return "pass" if not reasons else ", ".join(dict.fromkeys(reasons))
 
 
@@ -549,6 +705,58 @@ def add_special_technical_scores(df: pd.DataFrame) -> pd.DataFrame:
     result["matched_conditions"] = result.apply(build_technical_condition_text, axis=1)
     result["risk_flags"] = result.apply(build_special_risk_flags, axis=1)
     return round_special_numeric_columns(result)
+
+
+def add_day_swing_technical_scores(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    trading_value = numeric_series(result, "trading_value_today")
+    avg_trading_value = numeric_series(result, "avg_trading_value_20d")
+    liquidity_today = (trading_value / 5_000_000_000).clip(0, 1) * 14
+    liquidity_average = (avg_trading_value / 3_000_000_000).clip(0, 1) * 6
+    result["day_liquidity_score"] = (liquidity_today + liquidity_average).round(2)
+    result["morning_entry_bias_score"] = (
+        numeric_series(result, "reclaim_score") * 0.75
+        + numeric_series(result, "breakout_ready_score") * 0.75
+        + numeric_series(result, "pocket_pivot_score") * 0.55
+        + numeric_series(result, "relative_strength_score") * 0.35
+        + numeric_series(result, "steady_volume_score") * 0.25
+    ).clip(upper=30).round(2)
+    result["day_gap_risk_penalty"] = calculate_day_gap_risk_penalty(result)
+    result["day_technical_score"] = (
+        numeric_series(result, "technical_score") * 0.35
+        + numeric_series(result, "steady_volume_score") * 0.55
+        + numeric_series(result, "morning_entry_bias_score")
+        + numeric_series(result, "day_liquidity_score")
+        - numeric_series(result, "day_gap_risk_penalty")
+    ).clip(lower=0).round(2)
+    if "overnight_news_score" not in result.columns:
+        result["overnight_news_score"] = 0.0
+    result["day_swing_score"] = (
+        numeric_series(result, "day_technical_score")
+        + numeric_series(result, "overnight_news_score")
+    ).clip(lower=0).round(2)
+    result["matched_conditions"] = result.apply(build_day_condition_text, axis=1)
+    result["risk_flags"] = result.apply(build_day_risk_flags, axis=1)
+    return round_special_numeric_columns(result)
+
+
+def calculate_day_gap_risk_penalty(df: pd.DataFrame) -> pd.Series:
+    return_1d = numeric_series(df, "return_1d")
+    return_5d = numeric_series(df, "return_5d")
+    rsi = numeric_series(df, "rsi14", 50)
+    day_range = numeric_series(df, "day_range_pct")
+    volume_ratio = numeric_series(df, "volume_ratio_20d")
+    box_position = numeric_series(df, "box_position_pct")
+    close_vs_high = numeric_series(df, "close_vs_20d_high_pct")
+    return (
+        (return_1d > 7).astype(int) * 5
+        + (return_5d > 12).astype(int) * 4
+        + (rsi > 74).astype(int) * 5
+        + (day_range > 12).astype(int) * 4
+        + (volume_ratio > 4).astype(int) * 5
+        + (box_position > 96).astype(int) * 4
+        + (close_vs_high > -0.5).astype(int) * 3
+    ).round(2)
 
 
 def calculate_box_score(df: pd.DataFrame) -> pd.Series:
@@ -907,6 +1115,91 @@ def score_special_news_candidates(
     return normalize_special_columns(result.copy())
 
 
+def score_day_swing_news_candidates(
+    candidates_df: pd.DataFrame,
+    raw_news_df: pd.DataFrame,
+    analysis_start_dt: datetime,
+    analysis_end_dt: datetime,
+) -> pd.DataFrame:
+    if candidates_df.empty:
+        return pd.DataFrame(columns=DAY_SWING_COLUMNS)
+
+    result = candidates_df.copy()
+    result["code"] = normalize_stock_code_series(result["code"])
+    result = result.drop(
+        columns=[column for column in SPECIAL_NEWS_ANALYSIS_COLUMNS if column != "code"],
+        errors="ignore",
+    )
+    news_df = analyze_special_news(raw_news_df, analysis_start_dt, analysis_end_dt)
+    result = result.merge(news_df, on="code", how="left", suffixes=("", "_news"))
+    result = fill_missing_special_news_columns(result)
+    result["overnight_news_score"] = calculate_overnight_news_score(result)
+    result["matched_conditions"] = result.apply(append_day_news_condition_text, axis=1)
+    result["risk_flags"] = result.apply(append_news_risk_flags, axis=1)
+    result["day_swing_score"] = (
+        numeric_series(result, "day_technical_score")
+        + numeric_series(result, "overnight_news_score")
+        + numeric_series(result, "direct_catalyst_score") * 0.6
+        + numeric_series(result, "primary_news_score") * 0.5
+        - numeric_series(result, "news_concentration_penalty") * 0.8
+        - numeric_series(result, "duplicate_story_penalty") * 0.6
+        - numeric_series(result, "theme_breadth_penalty") * 0.4
+        - numeric_series(result, "negative_news_count") * 8
+        - numeric_series(result, "noisy_news_count_5d") * 2
+    ).clip(lower=0).round(2)
+
+    result = sort_day_news_scored_candidates(result).reset_index(drop=True)
+    result["rank"] = range(1, len(result) + 1)
+    return normalize_day_columns(result.copy())
+
+
+def calculate_overnight_news_score(df: pd.DataFrame) -> pd.Series:
+    return (
+        numeric_series(df, "relevant_news_count_5d") * 7
+        + numeric_series(df, "primary_news_score") * 1.2
+        + numeric_series(df, "direct_catalyst_score") * 1.4
+        + numeric_series(df, "news_freshness_score") * 1.3
+        + numeric_series(df, "theme_score") * 0.5
+        + numeric_series(df, "catalyst_score") * 0.9
+        - numeric_series(df, "negative_news_count") * 8
+        - numeric_series(df, "duplicate_story_penalty") * 0.6
+        - numeric_series(df, "noisy_news_count_5d") * 2
+    ).clip(lower=0, upper=80).round(2)
+
+
+def sort_day_news_scored_candidates(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    for column in [
+        "day_swing_score",
+        "overnight_news_score",
+        "direct_catalyst_score",
+        "primary_news_score",
+        "news_freshness_score",
+        "theme_score",
+        "day_technical_score",
+        "day_gap_risk_penalty",
+        "negative_news_count",
+        "trading_value_today",
+    ]:
+        if column not in result.columns:
+            result[column] = 0
+    return result.sort_values(
+        by=[
+            "day_swing_score",
+            "overnight_news_score",
+            "direct_catalyst_score",
+            "primary_news_score",
+            "news_freshness_score",
+            "theme_score",
+            "day_technical_score",
+            "day_gap_risk_penalty",
+            "negative_news_count",
+            "trading_value_today",
+        ],
+        ascending=[False, False, False, False, False, False, False, True, True, False],
+    )
+
+
 def sort_special_news_scored_candidates(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     for column in [
@@ -1105,6 +1398,37 @@ def build_special_ai_news_window(
     return build_special_news_window(signal_date, lookback_days, now)
 
 
+def build_day_swing_ai_news_window(
+    market_date: str,
+    signal_date: str,
+    now: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    timezone = ZoneInfo(KST_TIMEZONE)
+    current_dt = (now or datetime.now(timezone)).astimezone(timezone)
+    start_date = datetime.strptime(market_date, "%Y-%m-%d").date()
+    target_date = datetime.strptime(signal_date, "%Y-%m-%d").date()
+    start_dt = datetime(
+        start_date.year,
+        start_date.month,
+        start_date.day,
+        DAY_SWING_NEWS_START_HOUR,
+        DAY_SWING_NEWS_START_MINUTE,
+        tzinfo=timezone,
+    )
+    default_end_dt = datetime(
+        target_date.year,
+        target_date.month,
+        target_date.day,
+        DAY_SWING_NEWS_CUTOFF_HOUR,
+        DAY_SWING_NEWS_CUTOFF_MINUTE,
+        tzinfo=timezone,
+    )
+    end_dt = min(default_end_dt, current_dt)
+    if end_dt < start_dt:
+        start_dt = datetime(end_dt.year, end_dt.month, end_dt.day, tzinfo=timezone)
+    return start_dt, end_dt
+
+
 def build_special_news_window(
     signal_date: str,
     lookback_days: int,
@@ -1172,6 +1496,16 @@ def normalize_special_audit_columns(df: pd.DataFrame) -> pd.DataFrame:
     return normalized[SPECIAL_SWING_AUDIT_COLUMNS]
 
 
+def normalize_day_columns(df: pd.DataFrame) -> pd.DataFrame:
+    normalized = ensure_columns(df, DAY_SWING_COLUMNS)
+    return normalized[DAY_SWING_COLUMNS]
+
+
+def normalize_day_audit_columns(df: pd.DataFrame) -> pd.DataFrame:
+    normalized = ensure_columns(df, DAY_SWING_AUDIT_COLUMNS)
+    return normalized[DAY_SWING_AUDIT_COLUMNS]
+
+
 def round_special_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     round_columns = [
@@ -1212,6 +1546,12 @@ def round_special_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
         "five_day_trigger_score",
         "technical_risk_penalty",
         "technical_score",
+        "day_liquidity_score",
+        "morning_entry_bias_score",
+        "day_gap_risk_penalty",
+        "day_technical_score",
+        "overnight_news_score",
+        "day_swing_score",
     ]
     for column in round_columns:
         if column in result.columns:
@@ -1252,6 +1592,27 @@ def build_technical_condition_text(row: pd.Series) -> str:
     return ", ".join(conditions)
 
 
+def build_day_condition_text(row: pd.Series) -> str:
+    conditions: list[str] = []
+    if row.get("steady_volume_score", 0) >= 8:
+        conditions.append("day_liquidity")
+    if row.get("day_liquidity_score", 0) >= 10:
+        conditions.append("active_trading_value")
+    if row.get("morning_entry_bias_score", 0) >= 10:
+        conditions.append("morning_entry_bias")
+    if row.get("reclaim_score", 0) >= 7:
+        conditions.append("ma_vwap_reclaim")
+    if row.get("breakout_ready_score", 0) >= 8:
+        conditions.append("breakout_ready")
+    if row.get("pocket_pivot_score", 0) >= 8:
+        conditions.append("pocket_pivot")
+    if row.get("relative_strength_score", 0) >= 10:
+        conditions.append("relative_strength")
+    if row.get("day_gap_risk_penalty", 0) <= 6:
+        conditions.append("gap_risk_controlled")
+    return ", ".join(conditions)
+
+
 def append_news_condition_text(row: pd.Series) -> str:
     conditions = split_csv_text(row.get("matched_conditions", ""))
     if row.get("news_growth_score", 0) >= 8:
@@ -1264,6 +1625,21 @@ def append_news_condition_text(row: pd.Series) -> str:
         conditions.append("theme_news")
     if row.get("catalyst_score", 0) >= 5:
         conditions.append("catalyst_watch")
+    return ", ".join(dict.fromkeys(conditions))
+
+
+def append_day_news_condition_text(row: pd.Series) -> str:
+    conditions = split_csv_text(row.get("matched_conditions", ""))
+    if row.get("overnight_news_score", 0) >= 20:
+        conditions.append("overnight_news_catalyst")
+    if row.get("news_freshness_score", 0) >= 4:
+        conditions.append("fresh_morning_news")
+    if row.get("direct_catalyst_score", 0) >= 8:
+        conditions.append("direct_day_catalyst")
+    if row.get("primary_news_score", 0) >= 3:
+        conditions.append("company_specific_news")
+    if str(row.get("theme_hits", "")).strip():
+        conditions.append("theme_news")
     return ", ".join(dict.fromkeys(conditions))
 
 
@@ -1286,6 +1662,19 @@ def build_special_risk_flags(row: pd.Series) -> str:
     if row.get("pocket_pivot_score", 0) < 4 and row.get("volume_ratio_20d", 0) > 2.8:
         flags.append("volume_without_pocket_pivot")
     return ", ".join(flags)
+
+
+def build_day_risk_flags(row: pd.Series) -> str:
+    flags = split_csv_text(build_special_risk_flags(row))
+    if row.get("return_1d", 0) > 7:
+        flags.append("gap_chase_risk")
+    if row.get("day_range_pct", 0) > 12:
+        flags.append("wide_intraday_range")
+    if row.get("day_gap_risk_penalty", 0) > 10:
+        flags.append("day_gap_risk_high")
+    if row.get("volume_ratio_20d", 0) > 4:
+        flags.append("late_volume_spike")
+    return ", ".join(dict.fromkeys(flags))
 
 
 def append_news_risk_flags(row: pd.Series) -> str:
