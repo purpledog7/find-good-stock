@@ -9,6 +9,7 @@ from src.news_client import (
     looks_truncated_text,
     parse_news_item,
     parse_news_items,
+    parse_web_items,
 )
 
 
@@ -222,3 +223,20 @@ def test_parse_news_items_skips_invalid_items():
 
     assert len(result) == 1
     assert result[0].title == "정상"
+
+
+def test_parse_web_items_cleans_html_and_urls():
+    result = parse_web_items(
+        [
+            {
+                "title": "<b>Alpha</b>",
+                "description": "A &amp; B",
+                "link": "https://example.com?a=1&amp;b=2",
+            }
+        ]
+    )
+
+    assert len(result) == 1
+    assert result[0].title == "Alpha"
+    assert result[0].description == "A & B"
+    assert result[0].link == "https://example.com?a=1&b=2"

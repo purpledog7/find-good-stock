@@ -17,6 +17,7 @@ from config import KST_TIMEZONE, RETRY_COUNT, RETRY_SLEEP_SECONDS
 
 
 NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
+NAVER_WEB_URL = "https://openapi.naver.com/v1/search/webkr.json"
 ProgressCallback = Callable[[str], None] | None
 
 
@@ -33,6 +34,13 @@ class NewsItem:
 class PageMetadata:
     title: str = ""
     description: str = ""
+
+
+@dataclass(frozen=True)
+class WebSearchItem:
+    title: str
+    description: str
+    link: str
 
 
 class NaverNewsClient:
@@ -254,6 +262,45 @@ class NaverNewsClient:
 
         raise RuntimeError(f"네이버 뉴스 요청 실패: {last_error}") from last_error
 
+    def search_web_documents(
+        self,
+        query: str,
+        display: int = 10,
+        start: int = 1,
+    ) -> list[WebSearchItem]:
+        payload = self.request_web_documents(query, display, start=start)
+        time.sleep(self.request_sleep_seconds)
+        return parse_web_items(payload.get("items", []))
+
+    def request_web_documents(self, query: str, display: int, start: int = 1) -> dict:
+        headers = {
+            "X-Naver-Client-Id": self.client_id,
+            "X-Naver-Client-Secret": self.client_secret,
+        }
+        params = {
+            "query": query,
+            "display": min(max(display, 1), 100),
+            "start": min(max(start, 1), 1000),
+        }
+
+        last_error: Exception | None = None
+        for attempt in range(RETRY_COUNT):
+            try:
+                response = requests.get(
+                    NAVER_WEB_URL,
+                    headers=headers,
+                    params=params,
+                    timeout=self.request_timeout_seconds,
+                )
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as error:
+                last_error = error
+                if attempt < RETRY_COUNT - 1:
+                    time.sleep(RETRY_SLEEP_SECONDS * (attempt + 1))
+
+        raise RuntimeError(f"Naver web search request failed: {last_error}") from last_error
+
 
 def default_news_window(
     now: datetime | None = None,
@@ -311,6 +358,24 @@ def parse_news_items(items: list[dict]) -> list[NewsItem]:
         try:
             parsed_items.append(parse_news_item(item))
         except (KeyError, TypeError, ValueError, IndexError):
+            continue
+    return parsed_items
+
+
+def parse_web_item(item: dict) -> WebSearchItem:
+    return WebSearchItem(
+        title=clean_html(item.get("title", "")),
+        description=clean_html(item.get("description", "")),
+        link=clean_url(item.get("link")),
+    )
+
+
+def parse_web_items(items: list[dict]) -> list[WebSearchItem]:
+    parsed_items: list[WebSearchItem] = []
+    for item in items:
+        try:
+            parsed_items.append(parse_web_item(item))
+        except (TypeError, ValueError):
             continue
     return parsed_items
 

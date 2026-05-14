@@ -35,13 +35,16 @@ class DartClient:
         self._corp_codes: pd.DataFrame | None = None
 
     @classmethod
-    def from_env(cls) -> "DartClient":
+    def from_env(
+        cls,
+        request_sleep_seconds: float = 0.2,
+    ) -> "DartClient":
         api_key = os.getenv("DART_API_KEY")
         if not api_key:
             raise RuntimeError(
                 "OpenDART 보강을 쓰려면 `DART_API_KEY` 환경변수가 필요해."
             )
-        return cls(api_key)
+        return cls(api_key, request_sleep_seconds=request_sleep_seconds)
 
     def fetch_metrics_for_stock_codes(
         self,
